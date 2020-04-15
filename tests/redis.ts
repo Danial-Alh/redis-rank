@@ -1,6 +1,6 @@
 import Redis from 'ioredis';
 
-let rc = new Redis();
+let rc = new Redis(6379,"127.0.0.1" );
 
 beforeEach((done) => {
     rc.flushall(done);

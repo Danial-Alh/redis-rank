@@ -21,11 +21,11 @@ export type Entry = {
 
 export class Leaderboard {
     /** ioredis client */
-    private client: Redis;
+    protected client: Redis;
     /** options */
-    private options: LeaderboardOptions;
+    protected options: LeaderboardOptions;
     /** script source used in improve and improveMulti */
-    private improveScript: string;
+    protected improveScript: string;
 
     /**
      * Create a new leaderboard
@@ -112,6 +112,15 @@ export class Leaderboard {
      */
     async remove(id: ID): Promise<void> {
         await this.client.zrem(this.options.path, id);
+    }
+
+    /**
+     * @see remove
+     * 
+     * Uses IORedis.Pipeline to be able to batch multiple commands
+     */
+    removeMulti(id: ID, pipeline: Pipeline): Pipeline {
+        return pipeline.zrem(this.options.path, id);
     }
     
     /**
