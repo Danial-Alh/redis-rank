@@ -6,9 +6,17 @@ import { AssertionError } from "assert";
 type PATH_ID = string;
 type TIME_ID = string;
 
+
+export type TimestampedLeaderboardOptions = LeaderboardOptions & {
+    earlierToLater: boolean
+}
+
 export class TimestampedLeaderboard extends Leaderboard {
-    constructor(client: IORedis.Redis, options?: Partial<LeaderboardOptions> | undefined) {
+    protected earlierToLater: boolean
+
+    constructor(client: IORedis.Redis, options: Partial<TimestampedLeaderboardOptions>) {
         super(client, options);
+        this.earlierToLater = options.earlierToLater === undefined ? true : options.earlierToLater
     }
 
     protected id2PathedId(id: ID): PATH_ID {
@@ -17,7 +25,9 @@ export class TimestampedLeaderboard extends Leaderboard {
     }
 
     protected id2CurrentTimestampedId(id: ID): TIME_ID {
-        const timestampedId = (10**13 - (new Date()).getTime()).toString() + ":" + id // 13 digits is enough for more than 315 years
+        let timestamp = (new Date()).getTime()
+        if (!this.earlierToLater) timestamp = 10 ** 13 - timestamp
+        const timestampedId = timestamp.toString() + ":" + id // 13 digits is enough for more than 315 years
         return timestampedId
     }
 

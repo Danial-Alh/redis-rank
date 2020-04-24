@@ -1,6 +1,7 @@
 import { Leaderboard, LeaderboardOptions } from './Leaderboard';
 import { Redis } from 'ioredis';
 import moment from 'moment';
+import { TimestampedLeaderboardOptions, TimestampedLeaderboard } from './TimestampedLeaderboard';
 
 /**
  * Time interval of one leaderboard cycle
@@ -14,8 +15,9 @@ export type PeriodicLeaderboardOptions = {
     timeFrame: TimeFrame,
     /** custom function to evaluate the current time */
     now(): Date,
+    useTimstampedLeaderboard: Boolean,
     /** underlying leaderboard options */
-    leaderboardOptions?: LeaderboardOptions
+    leaderboardOptions?: Partial<LeaderboardOptions | TimestampedLeaderboardOptions>
 }
 
 export class PeriodicLeaderboard {
@@ -26,14 +28,16 @@ export class PeriodicLeaderboard {
     /** cached Time Frame format */
     private format: string;
     /** active leaderboard */
-    private leaderboard: (Leaderboard | null) = null;
+    private leaderboard: (Leaderboard | TimestampedLeaderboard | null) = null;
 
     constructor(client: Redis, options: Partial<PeriodicLeaderboardOptions> = {}) {
         this.client = client;
+
         this.options = Object.assign({
             path: "plb",
             timeFrame: 'all-time',
             now: () => new Date,
+            useTimstampedLeaderboard: false,
             leaderboardOptions: null
         }, options);
         this.format = PeriodicLeaderboard.momentFormat(this.options.timeFrame);
@@ -45,11 +49,11 @@ export class PeriodicLeaderboard {
      * e.g. for 'minute' [y]YYYY-[m]MM-[w]ww-[d]DD-[h]HH-[m]mm
      */
     private static momentFormat(timeFrame: TimeFrame): string {
-        if(timeFrame == 'all-time')
+        if (timeFrame == 'all-time')
             return '[all]';
-        
-        const frames = [ 'yearly', 'monthly', 'weekly', 'daily', 'hourly', 'minute'];
-        const format = ['[y]YYYY',   '[m]MM',  '[w]ww', '[d]DD',  '[h]HH',  '[m]mm'];
+
+        const frames = ['yearly', 'monthly', 'weekly', 'daily', 'hourly', 'minute'];
+        const format = ['[y]YYYY', '[m]MM', '[w]ww', '[d]DD', '[h]HH', '[m]mm'];
 
         return format.slice(0, frames.indexOf(timeFrame) + 1).join('-');
     }
@@ -72,6 +76,13 @@ export class PeriodicLeaderboard {
      * Get a the leaderboard in a specific date
      */
     get(date: Date): Leaderboard {
+        if (this.options.useTimstampedLeaderboard)
+        {
+            return new TimestampedLeaderboard(this.client, {
+                path: `${this.options.path}:${this.getKey(date)}`,
+                ...this.options.leaderboardOptions
+            });
+        }
         return new Leaderboard(this.client, {
             path: `${this.options.path}:${this.getKey(date)}`,
             ...this.options.leaderboardOptions
@@ -91,8 +102,8 @@ export class PeriodicLeaderboard {
      */
     getCurrent(): Leaderboard {
         let path = `${this.options.path}:${this.getCurrentKey()}`;
-        
-        if(this.leaderboard === null || this.leaderboard.getPath() !== path) {
+
+        if (this.leaderboard === null || this.leaderboard.getPath() !== path) {
             delete this.leaderboard;
             this.leaderboard = new Leaderboard(this.client, {
                 ...this.options.leaderboardOptions,

@@ -2,6 +2,7 @@ import { Redis, Pipeline } from 'ioredis';
 import { Leaderboard, LeaderboardOptions, ID } from './Leaderboard';
 import { TimeFrame, PeriodicLeaderboard } from './PeriodicLeaderboard';
 import { buildScript } from './Common';
+import { TimestampedLeaderboardOptions } from './TimestampedLeaderboard';
 
 export type DimensionDefinition = {
     /** dimension name */
@@ -13,8 +14,9 @@ export type DimensionDefinition = {
 export type FeatureDefinition = {
     /** feature name */
     name: string;
+    useTimstampedLeaderboard: Boolean,
     /** underlying leaderboard options. path is ignored */
-    options?: LeaderboardOptions;
+    options?: Partial<LeaderboardOptions | TimestampedLeaderboardOptions>;
 }
 
 export type LeaderboardMatrixOptions = {
@@ -38,21 +40,21 @@ export type MatrixEntry = {
     /** ranking */
     rank: number,
     /** feature scores */
-    [ feature: string ]: ID | number
+    [feature: string]: ID | number
 }
 
 
 export class LeaderboardMatrix {
     /** ioredis client */
-    private client: Redis;
+    protected client: Redis;
     /** options */
-    private options: LeaderboardMatrixOptions;
+    protected options: LeaderboardMatrixOptions;
     /** matrix with the leaderboards */
-    private matrix: (PeriodicLeaderboard | null)[][];
+    protected matrix: (PeriodicLeaderboard | null)[][];
 
     constructor(client: Redis, options: Partial<LeaderboardMatrixOptions> = {}) {
         this.client = client;
-        
+
         this.options = Object.assign({
             path: 'lbmatrix',
             dimensions: [{
@@ -79,11 +81,11 @@ export class LeaderboardMatrix {
         let dim_index = this.options.dimensions.findIndex((dim) => dim.name === dimension);
         let feat_index = this.options.features.findIndex((feat) => feat.name === feature);
 
-        if(dim_index === -1 || feat_index === -1) {
+        if (dim_index === -1 || feat_index === -1) {
             return null;
         }
 
-        if(this.matrix[dim_index][feat_index] === null) {
+        if (this.matrix[dim_index][feat_index] === null) {
             let dim = this.options.dimensions[dim_index];
             let feat = this.options.features[feat_index];
 
@@ -91,6 +93,7 @@ export class LeaderboardMatrix {
                 path: `${this.options.path}:${dim.name}:${feat.name}`,
                 timeFrame: dim.timeFrame || 'all-time',
                 now: this.options.now,
+                useTimstampedLeaderboard: feat.useTimstampedLeaderboard,
                 leaderboardOptions: feat.options
             });
         }
@@ -118,16 +121,16 @@ export class LeaderboardMatrix {
      *                   if not provided, all dimensions are used
      */
     async add(id: ID, features: { [key: string]: number }, dimensions: string[] = []): Promise<void> {
-        if(dimensions.length == 0) { // use all dimensions
+        if (dimensions.length == 0) { // use all dimensions
             dimensions = this.options.dimensions.map((dim) => dim.name);
         }
 
         let pipeline: Pipeline = this.client.multi();
 
-        for(let dimension of dimensions) {
-            for(let feature in features) {
+        for (let dimension of dimensions) {
+            for (let feature in features) {
                 let lb = this.get(dimension, feature);
-                if(lb) {
+                if (lb) {
                     pipeline = lb.addMulti(id, features[feature], pipeline);
                 }
             }
@@ -156,16 +159,16 @@ export class LeaderboardMatrix {
      *                   if not provided, all dimensions are used
      */
     async incr(id: ID, features: { [key: string]: number }, dimensions: string[] = []): Promise<void> {
-        if(dimensions.length == 0) { // use all dimensions
+        if (dimensions.length == 0) { // use all dimensions
             dimensions = this.options.dimensions.map((dim) => dim.name);
         }
 
         let pipeline: Pipeline = this.client.multi();
 
-        for(let dimension of dimensions) {
-            for(let feature in features) {
+        for (let dimension of dimensions) {
+            for (let feature in features) {
                 let lb = this.get(dimension, feature);
-                if(lb) {
+                if (lb) {
                     pipeline = lb.incrMulti(id, features[feature], pipeline);
                 }
             }
@@ -194,16 +197,16 @@ export class LeaderboardMatrix {
      *                   if not provided, all dimensions are used
      */
     async improve(id: ID, features: { [key: string]: number }, dimensions: string[] = []): Promise<void> {
-        if(dimensions.length == 0) { // use all dimensions
+        if (dimensions.length == 0) { // use all dimensions
             dimensions = this.options.dimensions.map((dim) => dim.name);
         }
 
         let pipeline: Pipeline = this.client.multi();
 
-        for(let dimension of dimensions) {
-            for(let feature in features) {
+        for (let dimension of dimensions) {
+            for (let feature in features) {
                 let lb = this.get(dimension, feature);
-                if(lb) {
+                if (lb) {
                     pipeline = lb.improveMulti(id, features[feature], pipeline);
                 }
             }
@@ -218,14 +221,14 @@ export class LeaderboardMatrix {
      * @param feature only provide feature if you need the entry to be ranked
      */
     async peek(id: ID, dimension: string, feature?: string): Promise<MatrixEntry | null> {
-        if(feature) {
+        if (feature) {
             // just rely on around()
             let list = await this.around(dimension, feature, id, 0, false);
             return list.length == 0 ? null : list[0];
         }
         // else, only query the features across the dimension
 
-        if(this.options.dimensions.find((dim) => dim.name === dimension) === undefined)
+        if (this.options.dimensions.find((dim) => dim.name === dimension) === undefined)
             return null;
 
         let result = await this.client.eval(buildScript(`
@@ -233,11 +236,11 @@ export class LeaderboardMatrix {
             `),
             this.options.features.length,
             this.options.features.map(f => this.get(dimension, f.name)!.getPath()),
-            
+
             id
         );
 
-        if(result.every((e: any) => e === null))
+        if (result.every((e: any) => e === null))
             return null;
 
         let entry: MatrixEntry = { id, rank: 0 };
@@ -255,24 +258,24 @@ export class LeaderboardMatrix {
      */
     async list(dimension: string, feature: string, low: number, high: number): Promise<MatrixEntry[]> {
         let lb = this.get(dimension, feature);
-        if(!lb) return [];
+        if (!lb) return [];
 
         let result = await this.client.eval(buildScript(`
             return retrieveEntries(KEYS[1], ARGV[1], slice(KEYS, 2, ARGV[2]+1), ARGV[3], ARGV[4])
             `),
-            this.options.features.length+1,
+            this.options.features.length + 1,
             lb.getPath(),
             this.options.features.map(f => this.get(dimension, f.name)!.getPath()),
-            
+
             lb.isLowToHigh().toString(),
             this.options.features.length,
-            low-1,
-            high-1
+            low - 1,
+            high - 1
         );
 
         return this.parseEntries(result, low);
     }
-    
+
     /**
      * Retrieve the top entries
      * @param max max number of entries to return
@@ -293,8 +296,8 @@ export class LeaderboardMatrix {
      */
     async around(dimension: string, feature: string, id: ID, distance: number, fillBorders: boolean = false): Promise<MatrixEntry[]> {
         let lb = this.get(dimension, feature);
-        if(!lb) return [];
-        if(distance < 0)
+        if (!lb) return [];
+        if (distance < 0)
             return [];
 
         let result = await this.client.eval(buildScript(`
@@ -305,10 +308,10 @@ export class LeaderboardMatrix {
                 retrieveEntries(KEYS[1], ARGV[1], slice(KEYS, 2, ARGV[5]+1), range[1], range[2])
             }
             `),
-            this.options.features.length+1,
+            this.options.features.length + 1,
             lb.getPath(),
             this.options.features.map(f => this.get(dimension, f.name)!.getPath()),
-            
+
             lb.isLowToHigh().toString(),
             id,
             distance,
@@ -316,7 +319,7 @@ export class LeaderboardMatrix {
             this.options.features.length
         );
 
-        return this.parseEntries(result[1], parseInt(result[0], 10)+1);
+        return this.parseEntries(result[1], parseInt(result[0], 10) + 1);
     }
 
     /**
@@ -325,7 +328,7 @@ export class LeaderboardMatrix {
      * @param data from retrieveEntries
      * @param low rank of the first entry
      */
-    private parseEntries(result: any, low: number): MatrixEntry[] {
+    protected parseEntries(result: any, low: number): MatrixEntry[] {
         return result[0].map((id: ID, index: number) => {
             let entry: MatrixEntry = { id, rank: low + index };
             this.options.features.map((f, f_i) => {
