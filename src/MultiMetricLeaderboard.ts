@@ -60,7 +60,7 @@ export class MultimetricLeaderboard extends Leaderboard {
             await super.add(newId, 0)
         }
         else {
-            let pipeline = this.client.pipeline()
+            let pipeline = this.client.multi()
             pipeline = super.removeMulti(oldId, pipeline)
             pipeline = super.addMulti(newId, 0, pipeline)
             await pipeline.exec()

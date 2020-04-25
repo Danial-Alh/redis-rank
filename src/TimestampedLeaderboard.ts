@@ -3,8 +3,8 @@ import IORedis, { Pipeline } from "ioredis";
 import { Leaderboard, LeaderboardOptions, ID, Entry } from "./Leaderboard";
 import { AssertionError } from "assert";
 
-type PATH_ID = string;
-type TIME_ID = string;
+export type PATH_ID = string;
+export type TIME_ID = string;
 
 
 export type TimestampedLeaderboardOptions = LeaderboardOptions & {
@@ -20,8 +20,8 @@ export class TimestampedLeaderboard extends Leaderboard {
     }
 
     protected id2PathedId(id: ID): PATH_ID {
-        const pathId = this.getPath() + "/ids/" + id
-        return pathId
+        const pathedId = this.getPath() + "/ids/" + id
+        return pathedId
     }
 
     protected id2CurrentTimestampedId(id: ID): TIME_ID {
@@ -41,7 +41,7 @@ export class TimestampedLeaderboard extends Leaderboard {
         return entry
     }
 
-    protected async getLastTimeStampedId(id: ID, createIfNotExists: boolean = true): Promise<ID | null> {
+    protected async getLastTimestampedId(id: ID, createIfNotExists: boolean = true): Promise<ID | null> {
         const pathedId = this.id2PathedId(id)
         let timestampedId = await this.client.get(pathedId)
         if (createIfNotExists && timestampedId === null) {
@@ -53,9 +53,9 @@ export class TimestampedLeaderboard extends Leaderboard {
     protected async updateTimeStampedId(id: ID, timestampedId?: TIME_ID): Promise<TIME_ID> {
         if (timestampedId === undefined) timestampedId = this.id2CurrentTimestampedId(id)
         const pathedId = this.id2PathedId(id)
-        const lastTimestampedId = await this.getLastTimeStampedId(id, false)
+        const lastTimestampedId = await this.getLastTimestampedId(id, false)
 
-        let pipeline = this.client.pipeline()
+        let pipeline = this.client.multi()
         pipeline.set(pathedId, timestampedId)
         if (lastTimestampedId !== null) pipeline = super.removeMulti(lastTimestampedId!, pipeline)
         await pipeline.exec()
@@ -79,11 +79,12 @@ export class TimestampedLeaderboard extends Leaderboard {
     }
 
     public async improve(id: string, amount: number): Promise<Boolean> {
-        const lastTimestampedId = await this.getLastTimeStampedId(id, false)
+        const lastTimestampedId = await this.getLastTimestampedId(id, false)
         const currentTimestampedId = this.id2CurrentTimestampedId(id)
         let updated: Boolean
         if (lastTimestampedId === null) {
-            updated = await super.improve(currentTimestampedId, amount)
+            updated = true
+            await super.add(currentTimestampedId, amount)
             await this.updateTimeStampedId(id, currentTimestampedId)
         }
         else {
@@ -97,7 +98,7 @@ export class TimestampedLeaderboard extends Leaderboard {
     }
 
     public async incr(id: string, amount: number): Promise<number> {
-        const lastTimestampedId = await this.getLastTimeStampedId(id, false)
+        const lastTimestampedId = await this.getLastTimestampedId(id, false)
         let newScore: number
         if (lastTimestampedId === null) {
             newScore = amount
@@ -127,7 +128,7 @@ export class TimestampedLeaderboard extends Leaderboard {
     }
 
     async peek(id: ID): Promise<Entry | null> {
-        const timestampedId = await this.getLastTimeStampedId(id, false)
+        const timestampedId = await this.getLastTimestampedId(id, false)
         if (timestampedId === null) return null
 
         const entry = await super.peek(timestampedId)
@@ -136,14 +137,14 @@ export class TimestampedLeaderboard extends Leaderboard {
     }
 
     async score(id: ID): Promise<number | null> {
-        const timestampedId = await this.getLastTimeStampedId(id, false)
+        const timestampedId = await this.getLastTimestampedId(id, false)
         if (timestampedId === null) return null
 
         return await super.score(timestampedId)
     }
 
     async rank(id: ID): Promise<number | null> {
-        const timestampedId = await this.getLastTimeStampedId(id, false)
+        const timestampedId = await this.getLastTimestampedId(id, false)
         if (timestampedId === null) return null
 
         return await super.rank(timestampedId)
@@ -156,7 +157,7 @@ export class TimestampedLeaderboard extends Leaderboard {
     }
 
     async around(id: ID, distance: number, fillBorders: boolean = false): Promise<Entry[]> {
-        const timestampedId = await this.getLastTimeStampedId(id, false)
+        const timestampedId = await this.getLastTimestampedId(id, false)
         if (timestampedId === null) return []
         const entries = await super.around(timestampedId, distance, fillBorders)
         entries.forEach((entry, index, _) => { this.normalizeEntry(entry) })

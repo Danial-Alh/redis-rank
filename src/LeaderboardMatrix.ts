@@ -236,7 +236,6 @@ export class LeaderboardMatrix {
             `),
             this.options.features.length,
             this.options.features.map(f => this.get(dimension, f.name)!.getPath()),
-
             id
         );
 
