@@ -78,7 +78,7 @@ end
 
 local function Improve(path, id, score, lowToHigh)
     local ps = redis.call("zscore", path, id)
-    if lowToHigh then
+    if lowToHigh == 'true' then
         if not ps or tonumber(score) < tonumber(ps) then
             redis.call("zadd", path, score, id)
             return 1
