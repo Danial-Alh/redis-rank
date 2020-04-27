@@ -1,8 +1,8 @@
-import { TimestampedLeaderboard } from '../src/index';
+import { TimestampedLeaderboardV2 } from '../src/index';
 import rc from './redis';
 
 describe('Basic leaderboard', () => {
-    let lb: TimestampedLeaderboard;
+    let lb: TimestampedLeaderboardV2;
 
     // +------+-------+------+------------------+
     // | name | score | rank | rank (lowToHigh) |
@@ -112,7 +112,7 @@ describe('Basic leaderboard', () => {
 
     describe('low to high', () => {
         beforeEach(async () => {
-            lb = new TimestampedLeaderboard(rc, { earlierToLater: false, lowToHigh: true });
+            lb = new TimestampedLeaderboardV2(rc, { earlierToLater: false, lowToHigh: true });
             await sampleData();
         });
 

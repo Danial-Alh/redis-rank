@@ -11,14 +11,14 @@ local function retrieveEntry(id, feature_keys)
 
     while #feature_keys > 0 do
         local key = table.remove(feature_keys, 1)
-        features[#features + 1] = redis.call("ZSCORE", key, id)
+        features[#features + 1] = redis.pcall("ZSCORE", key, id)
     end
 
     return features
 end
 
 local function retrieveEntries(path, is_low_to_high, feature_keys, low, high)
-    local ids = redis.call((is_low_to_high == "true") and "zrange" or "zrevrange", path, low, high)
+    local ids = redis.pcall((is_low_to_high == "true") and "zrange" or "zrevrange", path, low, high)
     local features = {}
 
     while #feature_keys > 0 do
@@ -26,7 +26,7 @@ local function retrieveEntries(path, is_low_to_high, feature_keys, low, high)
 
         local scores = {}
         for n = 1, #ids, 1 do
-            table.insert(scores, redis.call("ZSCORE", key, ids[n]))
+            table.insert(scores, redis.pcall("ZSCORE", key, ids[n]))
         end
         features[#features + 1] = scores
     end
@@ -39,11 +39,11 @@ local function retrieveEntries(path, is_low_to_high, feature_keys, low, high)
 end
 
 local function aroundRange(path, is_low_to_high, id, distance, fill_borders)
-    local r = redis.call((is_low_to_high == "true") and "zrank" or "zrevrank", path, id)
+    local r = redis.pcall((is_low_to_high == "true") and "zrank" or "zrevrank", path, id)
     if r == false or r == nil then
         return {-1, -1}
     end
-    local c = redis.call("zcard", path)
+    local c = redis.pcall("zcard", path)
     local l = math.max(0, r - distance)
     local h = 0
     if fill_borders == "true" then
@@ -61,31 +61,33 @@ end
 -- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 local function get(path)
-    return redis.call("get", path)
+    local res = redis.pcall("get", path)
+    if res == false then return nil end
+    return res
 end
 
 local function set(path, value)
-    return redis.call("set", path, value)
+    return redis.pcall("set", path, value)
 end
 
 local function del(path)
-    return redis.call("del", path)
+    return redis.pcall("del", path)
 end
 
 local function zadd(path, id, score)
-    return redis.call("zadd", path, score, id)
+    return redis.pcall("zadd", path, score, id)
 end
 
-local function Improve(path, id, score, lowToHigh)
-    local ps = redis.call("zscore", path, id)
-    if lowToHigh == 'true' then
-        if not ps or tonumber(score) < tonumber(ps) then
-            redis.call("zadd", path, score, id)
+local function improve(path, id, score, lowToHigh)
+    local ps = redis.pcall("zscore", path, id)
+    if lowToHigh == "true" then
+        if (not ps) or tonumber(score) < tonumber(ps) then
+            redis.pcall("zadd", path, score, id)
             return 1
         end
     else
-        if not ps or tonumber(score) > tonumber(ps) then
-            redis.call("zadd", path, score, id)
+        if (not ps) or tonumber(score) > tonumber(ps) then
+            redis.pcall("zadd", path, score, id)
             return 1
         end
     end
@@ -93,38 +95,47 @@ local function Improve(path, id, score, lowToHigh)
 end
 
 local function zincrby(path, id, amount)
-    return redis.call("zincrby", path, amount, id)
+    return redis.pcall("zincrby", path, amount, id)
 end
 
 local function zrem(path, id)
-    return redis.call("zrem", path, id)
+    return redis.pcall("zrem", path, id)
 end
 
 --  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--- local getLastTimeStampedId
+
+local function split(str, delim)
+    local gen = string.gmatch(str, "[^" .. delim .. "]+")
+    local res = {}
+    for ii in gen do res[#res + 1] = ii end
+    return res
+end
+
+--  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+local getLastTimestampedId
 
 local function id2PathedId(path, id)
-    local pathedId = path + "/ids/" + id
+    local pathedId = path .. "/ids/" .. id
     return pathedId
 end
 
 local function id2CurrentTimestampedId(timestamp, id)
-    local timestampedId = tostring(timestamp) + ":" + id -- 13 digits is enough for more than 315 years
+    local timestampedId = tostring(timestamp) .. ":" .. id -- 13 digits is enough for more than 315 years
     return timestampedId
 end
 
 local function timestampedId2Id(timestampedId)
     local splittedId = split(timestampedId, ":")
-    local id = table.concat(tail(splittedId), "")
+    local id = table.concat(slice(splittedId, 2, #splittedId), "")
     return id
 end
 
 local function updateTimeStampedId(path, timestamp, id, timestampedId)
-    local pathedId = id2PathedId(id)
+    local pathedId = id2PathedId(path, id)
     if timestampedId == nil then
         timestampedId = id2CurrentTimestampedId(timestamp, id)
     end
-    local lastTimestampedId = getLastTimeStampedId(id, pathedId, false)
+    local lastTimestampedId = getLastTimestampedId(id, pathedId, "false")
 
     set(pathedId, timestampedId)
     if lastTimestampedId ~= nil then
@@ -134,10 +145,10 @@ local function updateTimeStampedId(path, timestamp, id, timestampedId)
     return timestampedId
 end
 
-local function getLastTimeStampedId(path, timestamp, id, createIfNotExists)
-    local pathedId = id2PathedId(id)
+getLastTimestampedId = function(path, timestamp, id, createIfNotExists)
+    local pathedId = id2PathedId(path, id)
     local timestampedId = get(pathedId)
-    if createIfNotExists and timestampedId == nil then
+    if (createIfNotExists == "true") and timestampedId == nil then
         timestampedId = updateTimeStampedId(path, timestamp, id, pathedId)
     end
     return timestampedId
@@ -166,8 +177,8 @@ local function timestampedRemove(path, timestamp, id)
 end
 
 local function timestampedImprove(path, timestamp, lowToHigh, id, score)
-    local lastTimestampedId = getLastTimeStampedId(path, timestamp, id, false)
-    local currentTimestampedId = this.id2CurrentTimestampedId(timestamp, id)
+    local lastTimestampedId = getLastTimestampedId(path, timestamp, id, "false")
+    local currentTimestampedId = id2CurrentTimestampedId(timestamp, id)
     local updated
     if lastTimestampedId == nil then
         updated = 1
@@ -184,7 +195,7 @@ local function timestampedImprove(path, timestamp, lowToHigh, id, score)
 end
 
 local function timestampedIncr(path, timestamp, id, amount)
-    local lastTimestampedId = getLastTimestampedId(path, timestamp, id, false)
+    local lastTimestampedId = getLastTimestampedId(path, timestamp, id, "false")
     local newScore
     if lastTimestampedId == nil then
         newScore = tostring(amount)
@@ -194,4 +205,13 @@ local function timestampedIncr(path, timestamp, id, amount)
     local timestampedId = updateTimeStampedId(path, timestamp, id)
     zadd(path, timestampedId, amount)
     return newScore
+end
+
+local function timestampedClear(path)
+    local allTimestampedIds = redis.pcall("zrange", path, 0, -1)
+    for i = 1, table.getn(allTimestampedIds) do
+        local id = timestampedId2Id(allTimestampedIds[i])
+        redis.pcall("del", id2PathedId(path, id))
+    end
+    redis.pcall("del", path)
 end

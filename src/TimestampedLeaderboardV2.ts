@@ -1,8 +1,7 @@
 
 import IORedis, { Pipeline } from "ioredis";
 import { Leaderboard, ID, Entry } from "./Leaderboard";
-import { AssertionError } from "assert";
-import { TimestampedLeaderboardOptions, PATH_ID, TIME_ID } from "./TimestampedLeaderboard";
+import { TimestampedLeaderboardOptions, TIME_ID } from "./TimestampedLeaderboard";
 import { buildScript } from "./Common";
 
 export class TimestampedLeaderboardV2 extends Leaderboard {
@@ -29,67 +28,76 @@ export class TimestampedLeaderboardV2 extends Leaderboard {
         return entry
     }
 
+    protected async getLastTimestampedId(id: ID, createIfNotExists: boolean = true): Promise<ID | null> {
+        let timestampedId = await this.client.eval(
+            buildScript(`return getLastTimestampedId(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
+            0, this.getPath(), this.getTimestamp(), id, createIfNotExists.toString())
+        return timestampedId
+    }
+
     public async add(id: string, score: number): Promise<void> {
         await this.client.eval(
-            buildScript(`return timestamepedAdd(ARGS[1], ARGS[2], ARGS[3], ARGS[4])`),
+            buildScript(`return timestampedAdd(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
             0, this.getPath(), this.getTimestamp(), id, score)
     }
 
     public addMulti(id: string, score: number, pipeline: Pipeline): Pipeline {
         pipeline = pipeline.eval(
-            buildScript(`return timestamepedAdd(ARGS[1], ARGS[2], ARGS[3], ARGS[4])`),
+            buildScript(`return timestampedAdd(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
             0, this.getPath(), this.getTimestamp(), id, score)
         return pipeline
     }
 
     public async improve(id: string, score: number): Promise<Boolean> {
         const updated = await this.client.eval(
-            buildScript(`return timestamepedImprove(ARGS[1], ARGS[2], ARGS[3], ARGS[4], ARGS[5])`),
+            buildScript(`return timestampedImprove(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5])`),
             0, this.getPath(), this.getTimestamp(), this.isLowToHigh().toString(), id, score)
         return updated == 1
     }
 
     public improveMulti(id: string, score: number, pipeline: Pipeline): Pipeline {
         pipeline = pipeline.eval(
-            buildScript(`return timestamepedImprove(ARGS[1], ARGS[2], ARGS[3], ARGS[4], ARGS[5])`),
+            buildScript(`return timestampedImprove(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5])`),
             0, this.getPath(), this.getTimestamp(), this.isLowToHigh().toString(), id, score)
         return pipeline
     }
 
     public async incr(id: string, amount: number): Promise<number> {
+        console.log(id, amount);
+        
         const newScore: string = await this.client.eval(
-            buildScript(`return timestamepedIncr(ARGS[1], ARGS[2], ARGS[3], ARGS[4])`),
+            buildScript(`return timestampedIncr(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
             0, this.getPath(), this.getTimestamp(), id, amount)
+        console.log(newScore);
+        
         return parseFloat(newScore)
 
     }
 
     public incrMulti(id: string, amount: number, pipeline: Pipeline): Pipeline {
         pipeline = pipeline.eval(
-            buildScript(`return timestamepedIncr(ARGS[1], ARGS[2], ARGS[3], ARGS[4])`),
+            buildScript(`return timestampedIncr(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
             0, this.getPath(), this.getTimestamp(), id, amount)
         return pipeline
     }
 
     public async remove(id: string): Promise<void> {
         await this.client.eval(
-            buildScript(`return timestamepedRemove(ARGS[1], ARGS[2], ARGS[3])`),
+            buildScript(`return timestampedRemove(ARGV[1], ARGV[2], ARGV[3])`),
             0, this.getPath(), this.getTimestamp(), id)
     }
 
     public removeMulti(id: string, pipeline: Pipeline): Pipeline {
         pipeline = pipeline.eval(
-            buildScript(`return timestamepedRemove(ARGS[1], ARGS[2], ARGS[3])`),
+            buildScript(`return timestampedRemove(ARGV[1], ARGV[2], ARGV[3])`),
             0, this.getPath(), this.getTimestamp(), id)
         return pipeline
     }
 
     async clear(): Promise<void> {
-        const allTimestampedIds = await this.client.zrange(this.getPath(), 0, -1)
-        const allIds = Array.from(allTimestampedIds, (timestampedId, _) => this.timestampedId2Id(timestampedId))
-        const allPathedIds = Array.from(allIds, (id, _) => this.id2PathedId(id))
-        await this.client.del(...allPathedIds)
-        await this.client.del(this.getPath());
+        await this.client.eval(
+            buildScript(`return timestampedClear(ARGV[1])`),
+            0, this.getPath())
     }
 
     async peek(id: ID): Promise<Entry | null> {

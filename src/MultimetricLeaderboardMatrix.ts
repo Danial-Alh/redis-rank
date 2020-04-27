@@ -10,10 +10,10 @@ import { AssertionError } from 'assert';
 export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
 
     constructor(client: Redis, options: Partial<LeaderboardMatrixOptions> = {}) {
-        if (!options.features?.every(f => f.useTimstampedLeaderboard === true)){
+        if (!options.features?.every(f => f.useTimestampedLeaderboard === true)){
             throw new AssertionError({message: "all leaderboards must be timestamped ones!"})
         }
-        options.features.push({name: 'allMetrics', useTimstampedLeaderboard:false})
+        options.features.push({name: 'allMetrics', useTimestampedLeaderboard:false})
         super(client, options)
     }
 
@@ -37,7 +37,7 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
                 path: `${this.options.path}:${dim.name}:${feat.name}`,
                 timeFrame: dim.timeFrame || 'all-time',
                 now: this.options.now,
-                useTimstampedLeaderboard: feat.useTimstampedLeaderboard,
+                useTimstampedLeaderboard: feat.useTimestampedLeaderboard,
                 leaderboardOptions: feat.options
             });
         }

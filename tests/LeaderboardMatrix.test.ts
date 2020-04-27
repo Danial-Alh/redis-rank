@@ -55,11 +55,14 @@ describe('Leaderboard matrix', () => {
                     timeFrame: 'weekly'
                 }],
                 features: [{
-                    name: 'feat1'
+                    name: 'feat1',
+                    useTimestampedLeaderboard: false,
                 },{
-                    name: 'feat2'
+                    name: 'feat2',
+                    useTimestampedLeaderboard: false,
                 },{
-                    name: 'feat3'
+                    name: 'feat3',
+                    useTimestampedLeaderboard: false,
                 }],
                 now: () => new Date(2019, 10, 19)
             });

@@ -14,7 +14,7 @@ export type DimensionDefinition = {
 export type FeatureDefinition = {
     /** feature name */
     name: string;
-    useTimstampedLeaderboard: Boolean,
+    useTimestampedLeaderboard: Boolean,
     /** underlying leaderboard options. path is ignored */
     options?: Partial<LeaderboardOptions | TimestampedLeaderboardOptions>;
 }
@@ -93,7 +93,7 @@ export class LeaderboardMatrix {
                 path: `${this.options.path}:${dim.name}:${feat.name}`,
                 timeFrame: dim.timeFrame || 'all-time',
                 now: this.options.now,
-                useTimstampedLeaderboard: feat.useTimstampedLeaderboard,
+                useTimstampedLeaderboard: feat.useTimestampedLeaderboard,
                 leaderboardOptions: feat.options
             });
         }
