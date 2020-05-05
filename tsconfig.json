@@ -68,7 +68,7 @@
     "out": "docs"
   },
   "include": [
-    "src/**/*"
+    "src/**/*", "tests/zTestTimestampV2.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
