@@ -14,7 +14,7 @@ export class TimestampedLeaderboardV2 extends Leaderboard {
 
     protected getTimestamp(): number {
         let timestamp = (new Date()).getTime()
-        if (!this.earlierToLater) timestamp = 10 ** 13 - timestamp
+        if (this.earlierToLater !== this.options.lowToHigh) timestamp = 10 ** 13 - timestamp
         return timestamp
     }
 
@@ -25,7 +25,6 @@ export class TimestampedLeaderboardV2 extends Leaderboard {
 
     protected normalizeEntry(entry: Entry): Entry {
         entry.id = this.timestampedId2Id(entry.id)
-        if (!this.options.lowToHigh) entry.score *= -1
         return entry
     }
 
@@ -37,14 +36,12 @@ export class TimestampedLeaderboardV2 extends Leaderboard {
     }
 
     public async add(id: string, score: number): Promise<void> {
-        if (!this.options.lowToHigh) score *= -1
         await this.client.eval(
             buildScript(`return timestampedAdd(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
             0, this.getPath(), this.getTimestamp(), id, score)
     }
 
     public addMulti(id: string, score: number, pipeline: Pipeline): Pipeline {
-        if (!this.options.lowToHigh) score *= -1
         pipeline = pipeline.eval(
             buildScript(`return timestampedAdd(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
             0, this.getPath(), this.getTimestamp(), id, score)
@@ -52,36 +49,29 @@ export class TimestampedLeaderboardV2 extends Leaderboard {
     }
 
     public async improve(id: string, score: number): Promise<Boolean> {
-        if (!this.options.lowToHigh) score *= -1
         const updated = await this.client.eval(
             buildScript(`return timestampedImprove(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5])`),
-            0, this.getPath(), this.getTimestamp(), id, score)
+            0, this.getPath(), this.getTimestamp(), this.isLowToHigh().toString(), id, score)
         return updated == 1
     }
 
     public improveMulti(id: string, score: number, pipeline: Pipeline): Pipeline {
-        if (!this.options.lowToHigh) score *= -1
         pipeline = pipeline.eval(
             buildScript(`return timestampedImprove(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5])`),
-            0, this.getPath(), this.getTimestamp(), id, score)
+            0, this.getPath(), this.getTimestamp(), this.isLowToHigh().toString(), id, score)
         return pipeline
     }
 
     public async incr(id: string, amount: number): Promise<number> {
-        if (!this.options.lowToHigh) amount *= -1
-        console.log(id, amount);
-
         const newScore: string = await this.client.eval(
             buildScript(`return timestampedIncr(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
             0, this.getPath(), this.getTimestamp(), id, amount)
-        console.log(newScore);
 
         return parseFloat(newScore)
 
     }
 
     public incrMulti(id: string, amount: number, pipeline: Pipeline): Pipeline {
-        if (!this.options.lowToHigh) amount *= -1
         pipeline = pipeline.eval(
             buildScript(`return timestampedIncr(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
             0, this.getPath(), this.getTimestamp(), id, amount)
@@ -120,7 +110,6 @@ export class TimestampedLeaderboardV2 extends Leaderboard {
         const timestampedId = await this.getLastTimestampedId(id, false)
         if (timestampedId === null) return null
         let score = await super.score(timestampedId)
-        if (!this.options.lowToHigh) score! *= -1
         return score
     }
 

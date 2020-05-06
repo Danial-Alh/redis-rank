@@ -176,7 +176,7 @@ local function timestampedRemove(path, timestamp, id)
     end
 end
 
-local function timestampedImprove(path, timestamp, id, score)
+local function timestampedImprove(path, timestamp, lowToHigh, id, score)
     local lastTimestampedId = getLastTimestampedId(path, timestamp, id, "false")
     local currentTimestampedId = id2CurrentTimestampedId(timestamp, id)
     local updated
@@ -185,8 +185,8 @@ local function timestampedImprove(path, timestamp, id, score)
         zadd(path, currentTimestampedId, score)
         updateTimeStampedId(path, timestamp, id, currentTimestampedId)
     else
-        updated = improve(path, lastTimestampedId, score, "true")
-        if updated then
+        updated = improve(path, lastTimestampedId, score, lowToHigh)
+        if updated == 1 then
             updateTimeStampedId(path, timestamp, id, currentTimestampedId)
             zadd(path, currentTimestampedId, score)
         end

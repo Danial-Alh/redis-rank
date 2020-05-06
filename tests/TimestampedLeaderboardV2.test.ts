@@ -1,3 +1,6 @@
+import delay from 'delay';
+
+
 import { TimestampedLeaderboardV2 } from '../src/index';
 import rc from './redis';
 
@@ -15,7 +18,9 @@ describe('Basic leaderboard', () => {
     // +------+-------+------+------------------+
     const sampleData = async () => {
         await lb.add("foo", 15);
+        await delay(1);
         await lb.add("bar", 15);
+        await delay(1);
         await lb.add("baz", 5);
     };
 
@@ -112,45 +117,45 @@ describe('Basic leaderboard', () => {
 
     describe('low to high', () => {
         beforeEach(async () => {
-            lb = new TimestampedLeaderboardV2(rc, { earlierToLater: false, lowToHigh: true });
+            lb = new TimestampedLeaderboardV2(rc, { earlierToLater: true, lowToHigh: false });
             await sampleData();
         });
 
         checkCommon();
 
         test("check order", async () => {
-            expect(lb.isLowToHigh()).toBe(true);
+            expect(lb.isLowToHigh()).toBe(false);
         });
 
         test("check ranks", async () => {
-            expect(await lb.rank("foo")).toBe(3);
+            expect(await lb.rank("foo")).toBe(1);
             expect(await lb.rank("bar")).toBe(2);
-            expect(await lb.rank("baz")).toBe(1);
+            expect(await lb.rank("baz")).toBe(3);
         });
 
         test("peek", async () => {
-            expect(await lb.peek("foo")).toStrictEqual({ id: "foo", score: 15, rank: 3 });
+            expect(await lb.peek("foo")).toStrictEqual({ id: "foo", score: 15, rank: 1 });
             expect(await lb.peek("bar")).toStrictEqual({ id: "bar", score: 15, rank: 2 });
-            expect(await lb.peek("baz")).toStrictEqual({ id: "baz", score: 5, rank: 1 });
+            expect(await lb.peek("baz")).toStrictEqual({ id: "baz", score: 5, rank: 3 });
         });
 
         test("at", async () => {
-            expect(await lb.at(1)).toStrictEqual({ id: "baz", score: 5, rank: 1 });
+            expect(await lb.at(1)).toStrictEqual({ id: "foo", score: 15, rank: 1 });
         });
 
         test("top 3", async () => {
             let top = await lb.top(3);
             expect(top).toHaveLength(3);
-            expect(top[0]).toStrictEqual({ id: "baz", score: 5, rank: 1 });
+            expect(top[2]).toStrictEqual({ id: "baz", score: 5, rank: 3 });
             expect(top[1]).toStrictEqual({ id: "bar", score: 15, rank: 2 });
-            expect(top[2]).toStrictEqual({ id: "foo", score: 15, rank: 3 });
+            expect(top[0]).toStrictEqual({ id: "foo", score: 15, rank: 1 });
         });
 
         test("list 2-3", async () => {
             let top = await lb.list(2, 3);
             expect(top).toHaveLength(2);
             expect(top[0]).toStrictEqual({ id: "bar", score: 15, rank: 2 });
-            expect(top[1]).toStrictEqual({ id: "foo", score: 15, rank: 3 });
+            expect(top[1]).toStrictEqual({ id: "baz", score: 5, rank: 3 });
         });
     });
 });

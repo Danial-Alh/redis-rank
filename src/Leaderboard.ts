@@ -95,7 +95,7 @@ export class Leaderboard {
      */
     async incr(id: ID, amount: number): Promise<number> {
         let score = await this.client.zincrby(this.options.path, amount, id);
-        return parseInt(score, 10);
+        return parseFloat(score);
     }
     
     /**
@@ -144,7 +144,7 @@ export class Leaderboard {
 
         return (result[0] === false || result[1] === false || result[0] === null || result[1] === null) ? null : {
             id: id,
-            score: parseInt(result[0], 10),
+            score: parseFloat(result[0]),
             rank: result[1]+1
         };
     }
@@ -154,7 +154,7 @@ export class Leaderboard {
      */
     async score(id: ID): Promise<number | null> {
         let score = await this.client.zscore(this.options.path, id);
-        return score === null ? null : parseInt(score, 10);
+        return score === null ? null : parseFloat(score);
     }
 
     /**
@@ -181,7 +181,7 @@ export class Leaderboard {
         for (let i = 0; i < result.length; i += 2) {
             entries.push({
                 id: result[i],
-                score: parseInt(result[i + 1], 10),
+                score: parseFloat(result[i + 1]),
                 rank: rank++
             });
         }
@@ -257,7 +257,7 @@ export class Leaderboard {
         for (let i = 0; i < result[1].length; i += 2) {
             entries.push({
                 id: result[1][i],
-                score: parseInt(result[1][i + 1], 10),
+                score: parseFloat(result[1][i + 1]),
                 rank: 1 + result[0] + rank++
             });
         }
