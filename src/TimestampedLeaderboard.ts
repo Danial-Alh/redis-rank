@@ -1,7 +1,8 @@
 
 import IORedis, { Pipeline } from "ioredis";
-import { Leaderboard, LeaderboardOptions, ID, Entry } from "./Leaderboard";
-import { AssertionError } from "assert";
+
+import { Leaderboard, ID, Entry, LeaderboardOptions } from "./Leaderboard";
+import { buildScript } from "./Common";
 
 export type PATH_ID = string;
 export type TIME_ID = string;
@@ -19,16 +20,10 @@ export class TimestampedLeaderboard extends Leaderboard {
         this.earlierToLater = options.earlierToLater === undefined ? true : options.earlierToLater
     }
 
-    protected id2PathedId(id: ID): PATH_ID {
-        const pathedId = this.getPath() + "/ids/" + id
-        return pathedId
-    }
-
-    protected id2CurrentTimestampedId(id: ID): TIME_ID {
+    protected getTimestamp(): number {
         let timestamp = (new Date()).getTime()
-        if (!this.earlierToLater) timestamp = 10 ** 13 - timestamp
-        const timestampedId = timestamp.toString() + ":" + id // 13 digits is enough for more than 315 years
-        return timestampedId
+        if (this.earlierToLater !== this.options.lowToHigh) timestamp = 10 ** 13 - timestamp
+        return timestamp
     }
 
     protected timestampedId2Id(timestampedId: TIME_ID): ID {
@@ -42,89 +37,72 @@ export class TimestampedLeaderboard extends Leaderboard {
     }
 
     protected async getLastTimestampedId(id: ID, createIfNotExists: boolean = true): Promise<ID | null> {
-        const pathedId = this.id2PathedId(id)
-        let timestampedId = await this.client.get(pathedId)
-        if (createIfNotExists && timestampedId === null) {
-            timestampedId = await this.updateTimeStampedId(id)
-        }
+        let timestampedId = await this.client.eval(
+            buildScript(`return getLastTimestampedId(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
+            0, this.getPath(), this.getTimestamp(), id, createIfNotExists.toString())
         return timestampedId
-    }
-
-    protected async updateTimeStampedId(id: ID, timestampedId?: TIME_ID): Promise<TIME_ID> {
-        if (timestampedId === undefined) timestampedId = this.id2CurrentTimestampedId(id)
-        const pathedId = this.id2PathedId(id)
-        const lastTimestampedId = await this.getLastTimestampedId(id, false)
-
-        let pipeline = this.client.multi()
-        pipeline.set(pathedId, timestampedId)
-        if (lastTimestampedId !== null) pipeline = super.removeMulti(lastTimestampedId!, pipeline)
-        await pipeline.exec()
-
-        return timestampedId
-    }
-
-    protected async deleteTimestampedId(id: ID): Promise<TIME_ID | null> {
-        const pathedId = this.id2PathedId(id)
-        const oldTimestampedId = await this.client.get(pathedId)
-        const exists = oldTimestampedId === null
-        if (exists) {
-            await this.client.del(pathedId)
-        }
-        return oldTimestampedId
     }
 
     public async add(id: string, score: number): Promise<void> {
-        const timestampedId = await this.updateTimeStampedId(id)
-        super.add(timestampedId, score)
+        await this.client.eval(
+            buildScript(`return timestampedAdd(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
+            0, this.getPath(), this.getTimestamp(), id, score)
     }
 
-    public async improve(id: string, amount: number): Promise<Boolean> {
-        const lastTimestampedId = await this.getLastTimestampedId(id, false)
-        const currentTimestampedId = this.id2CurrentTimestampedId(id)
-        let updated: Boolean
-        if (lastTimestampedId === null) {
-            updated = true
-            await super.add(currentTimestampedId, amount)
-            await this.updateTimeStampedId(id, currentTimestampedId)
-        }
-        else {
-            updated = await super.improve(lastTimestampedId!, amount)
-            if (updated) {
-                await this.updateTimeStampedId(id, currentTimestampedId)
-                await super.add(currentTimestampedId, amount)
-            }
-        }
-        return updated
+    public addMulti(id: string, score: number, pipeline: Pipeline): Pipeline {
+        pipeline = pipeline.eval(
+            buildScript(`return timestampedAdd(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
+            0, this.getPath(), this.getTimestamp(), id, score)
+        return pipeline
+    }
+
+    public async improve(id: string, score: number): Promise<Boolean> {
+        const updated = await this.client.eval(
+            buildScript(`return timestampedImprove(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5])`),
+            0, this.getPath(), this.getTimestamp(), this.isLowToHigh().toString(), id, score)
+        return updated == 1
+    }
+
+    public improveMulti(id: string, score: number, pipeline: Pipeline): Pipeline {
+        pipeline = pipeline.eval(
+            buildScript(`return timestampedImprove(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5])`),
+            0, this.getPath(), this.getTimestamp(), this.isLowToHigh().toString(), id, score)
+        return pipeline
     }
 
     public async incr(id: string, amount: number): Promise<number> {
-        const lastTimestampedId = await this.getLastTimestampedId(id, false)
-        let newScore: number
-        if (lastTimestampedId === null) {
-            newScore = amount
-        }
-        else {
-            newScore = await super.incr(lastTimestampedId, amount)
-        }
-        const timestampedId = await this.updateTimeStampedId(id)
-        await super.add(timestampedId, amount)
-        return newScore
+        const newScore: string = await this.client.eval(
+            buildScript(`return timestampedIncr(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
+            0, this.getPath(), this.getTimestamp(), id, amount)
 
+        return parseFloat(newScore)
+
+    }
+
+    public incrMulti(id: string, amount: number, pipeline: Pipeline): Pipeline {
+        pipeline = pipeline.eval(
+            buildScript(`return timestampedIncr(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
+            0, this.getPath(), this.getTimestamp(), id, amount)
+        return pipeline
     }
 
     public async remove(id: string): Promise<void> {
-        const lastTimestampedId = await this.deleteTimestampedId(id)
-        if (lastTimestampedId !== null) {
-            await super.remove(lastTimestampedId)
-        }
+        await this.client.eval(
+            buildScript(`return timestampedRemove(ARGV[1], ARGV[2], ARGV[3])`),
+            0, this.getPath(), this.getTimestamp(), id)
+    }
+
+    public removeMulti(id: string, pipeline: Pipeline): Pipeline {
+        pipeline = pipeline.eval(
+            buildScript(`return timestampedRemove(ARGV[1], ARGV[2], ARGV[3])`),
+            0, this.getPath(), this.getTimestamp(), id)
+        return pipeline
     }
 
     async clear(): Promise<void> {
-        const allTimestampedIds = await this.client.zrange(this.getPath(), 0, -1)
-        const allIds = Array.from(allTimestampedIds, (timestampedId, _) => this.timestampedId2Id(timestampedId))
-        const allPathedIds = Array.from(allIds, (id, _) => this.id2PathedId(id))
-        await this.client.del(...allPathedIds)
-        await this.client.del(this.getPath());
+        await this.client.eval(
+            buildScript(`return timestampedClear(ARGV[1])`),
+            0, this.getPath())
     }
 
     async peek(id: ID): Promise<Entry | null> {
@@ -132,15 +110,15 @@ export class TimestampedLeaderboard extends Leaderboard {
         if (timestampedId === null) return null
 
         const entry = await super.peek(timestampedId)
-        entry!.id = id
+        this.normalizeEntry(entry!)
         return entry
     }
 
     async score(id: ID): Promise<number | null> {
         const timestampedId = await this.getLastTimestampedId(id, false)
         if (timestampedId === null) return null
-
-        return await super.score(timestampedId)
+        let score = await super.score(timestampedId)
+        return score
     }
 
     async rank(id: ID): Promise<number | null> {
@@ -168,25 +146,4 @@ export class TimestampedLeaderboard extends Leaderboard {
     // ***************************** *********************** ***************************
     // ***************************** NOT IMPLEMENTED YET !!! ***************************
     // ***************************** *********************** ***************************
-
-    public addMulti(id: string, score: number, pipeline: Pipeline): Pipeline {
-        throw new AssertionError({ message: "not implemented yet!" })
-        super.addMulti(id, score, pipeline)
-    }
-
-    public improveMulti(id: string, amount: number, pipeline: Pipeline): Pipeline {
-        throw new AssertionError({ message: "not implemented yet!" })
-        super.addMulti(id, amount, pipeline)
-    }
-
-    public incrMulti(id: string, amount: number, pipeline: Pipeline): Pipeline {
-        throw new AssertionError({ message: "not implemented yet!" })
-        super.incrMulti(id, amount, pipeline)
-    }
-
-    public removeMulti(id: string, pipeline: Pipeline): Pipeline {
-        throw new AssertionError({ message: "not implemented yet!" })
-        pipeline = super.removeMulti(id, pipeline)
-        return pipeline
-    }
 }

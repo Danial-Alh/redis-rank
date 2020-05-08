@@ -2,6 +2,7 @@ import { Leaderboard, LeaderboardOptions } from './Leaderboard';
 import { Redis } from 'ioredis';
 import moment from 'moment';
 import { TimestampedLeaderboardOptions, TimestampedLeaderboard } from './TimestampedLeaderboard';
+import { MultimetricLeaderboard, MultimetricLeaderboardOptions } from './MultiMetricLeaderboard';
 
 /**
  * Time interval of one leaderboard cycle
@@ -15,9 +16,10 @@ export type PeriodicLeaderboardOptions = {
     timeFrame: TimeFrame,
     /** custom function to evaluate the current time */
     now(): Date,
-    useTimstampedLeaderboard: Boolean,
+    // leaderboardClass: (typeof Leaderboard) | (typeof TimestampedLeaderboard) | (typeof MultimetricLeaderboard),
+    leaderboardClass: typeof Leaderboard,
     /** underlying leaderboard options */
-    leaderboardOptions?: Partial<LeaderboardOptions | TimestampedLeaderboardOptions>
+    leaderboardOptions?: Partial<LeaderboardOptions | TimestampedLeaderboardOptions | MultimetricLeaderboardOptions>
 }
 
 export class PeriodicLeaderboard {
@@ -37,7 +39,7 @@ export class PeriodicLeaderboard {
             path: "plb",
             timeFrame: 'all-time',
             now: () => new Date,
-            useTimstampedLeaderboard: false,
+            leaderboardClass: Leaderboard,
             leaderboardOptions: null
         }, options);
         this.format = PeriodicLeaderboard.momentFormat(this.options.timeFrame);
@@ -76,14 +78,7 @@ export class PeriodicLeaderboard {
      * Get a the leaderboard in a specific date
      */
     get(date: Date): Leaderboard {
-        if (this.options.useTimstampedLeaderboard)
-        {
-            return new TimestampedLeaderboard(this.client, {
-                path: `${this.options.path}:${this.getKey(date)}`,
-                ...this.options.leaderboardOptions
-            });
-        }
-        return new Leaderboard(this.client, {
+        return new this.options.leaderboardClass(this.client, {
             path: `${this.options.path}:${this.getKey(date)}`,
             ...this.options.leaderboardOptions
         });

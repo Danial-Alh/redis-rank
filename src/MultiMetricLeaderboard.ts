@@ -7,14 +7,22 @@ import { TimestampedLeaderboard } from "./TimestampedLeaderboard";
 type PATH_ID = string;
 type NEW_ID = string;
 
+export type MultimetricLeaderboardOptions = LeaderboardOptions & {
+    leaderboards: TimestampedLeaderboard[],
+    maxUsers: number
+}
+
 export class MultimetricLeaderboard extends Leaderboard {
     protected leaderboards: TimestampedLeaderboard[]
     protected requiredDigitsForMaxUsers: number
 
-    constructor(client: IORedis.Redis, leaderboards: TimestampedLeaderboard[], maxUsers: number, options: Partial<LeaderboardOptions>) {
+    constructor(client: IORedis.Redis, options: Partial<MultimetricLeaderboardOptions>) {
         super(client, { path: options.path, lowToHigh: true })
-        this.leaderboards = leaderboards
-        this.requiredDigitsForMaxUsers = Math.ceil(Math.log10(maxUsers))
+        if (options.leaderboards === undefined || options.maxUsers === undefined || options.leaderboards.length === 0) {
+            throw new AssertionError({ message: "Invalid options! At least one leaderboard and maxUsers must be set." })
+        }
+        this.leaderboards = options.leaderboards
+        this.requiredDigitsForMaxUsers = Math.ceil(Math.log10(options.maxUsers))
     }
 
     protected id2PathedId(id: ID): PATH_ID {
