@@ -62,7 +62,9 @@ end
 
 local function get(path)
     local res = redis.pcall("get", path)
-    if res == false then return nil end
+    if res == false then
+        return nil
+    end
     return res
 end
 
@@ -107,7 +109,9 @@ end
 local function split(str, delim)
     local gen = string.gmatch(str, "[^" .. delim .. "]+")
     local res = {}
-    for ii in gen do res[#res + 1] = ii end
+    for ii in gen do
+        res[#res + 1] = ii
+    end
     return res
 end
 
@@ -214,4 +218,39 @@ local function timestampedClear(path)
         redis.pcall("del", id2PathedId(path, id))
     end
     redis.pcall("del", path)
+end
+
+local function retrieveMultimetricEntry(id, feature_keys)
+    local features = {}
+
+    while #feature_keys > 0 do
+        local key = table.remove(feature_keys, 1)
+        local timestampedId = getLastTimestampedId(key, nil, id, "false")
+        features[#features + 1] = redis.pcall("ZSCORE", key, timestampedId)
+    end
+
+    return features
+end
+
+local function retrieveMultimetricEntries(path, is_low_to_high, feature_keys, low, high)
+    local ids = redis.pcall((is_low_to_high == "true") and "zrange" or "zrevrange", path, low, high)
+    local features = {}
+
+    while #feature_keys > 0 do
+        local key = table.remove(feature_keys, 1)
+
+        local scores = {}
+        for n = 1, #ids, 1 do
+            local id = timestampedId2Id(ids[n])
+            local timestampedId = getLastTimestampedId(key, nil, id, "false")
+            table.insert(scores, redis.pcall("ZSCORE", key, timestampedId))
+        end
+        features[#features + 1] = scores
+    end
+
+    -- [
+    --   ['foo', 'bar', 'baz'],
+    --   [ [1, 2, 3], [4, 5, 6] ]
+    -- ]
+    return {ids, features}
 end

@@ -26,7 +26,7 @@ export class TimestampedLeaderboard extends Leaderboard {
         return timestamp
     }
 
-    protected timestampedId2Id(timestampedId: TIME_ID): ID {
+    public timestampedId2Id(timestampedId: TIME_ID): ID {
         const id = timestampedId.split(":").slice(1).join("")
         return id
     }
@@ -36,7 +36,7 @@ export class TimestampedLeaderboard extends Leaderboard {
         return entry
     }
 
-    protected async getLastTimestampedId(id: ID, createIfNotExists: boolean = true): Promise<ID | null> {
+    public async getLastTimestampedId(id: ID, createIfNotExists: boolean = true): Promise<ID | null> {
         let timestampedId = await this.client.eval(
             buildScript(`return getLastTimestampedId(ARGV[1], ARGV[2], ARGV[3], ARGV[4])`),
             0, this.getPath(), this.getTimestamp(), id, createIfNotExists.toString())

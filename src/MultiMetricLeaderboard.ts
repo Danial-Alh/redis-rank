@@ -7,7 +7,8 @@ import { TimestampedLeaderboard } from "./TimestampedLeaderboard";
 type PATH_ID = string;
 type NEW_ID = string;
 
-export type MultimetricLeaderboardOptions = LeaderboardOptions & {
+export type MultimetricLeaderboardOptions = {
+    path: string,
     leaderboards: TimestampedLeaderboard[],
     maxUsers: number
 }
@@ -48,7 +49,11 @@ export class MultimetricLeaderboard extends Leaderboard {
         return newId
     }
 
-    protected newId2Id(newId: NEW_ID): string {
+    public async getLastNewId(id: ID): Promise<string | null> {
+        return await this.client.get(this.id2PathedId(id))
+    }
+
+    public newId2Id(newId: NEW_ID): string {
         let ranking_meta_info_length = (13 + 1) + this.leaderboards.length * (this.requiredDigitsForMaxUsers + 1)
         return newId.slice(ranking_meta_info_length)
     }
@@ -62,13 +67,14 @@ export class MultimetricLeaderboard extends Leaderboard {
         let pathedId = this.id2PathedId(id)
         let newId = await this.id2NewId(id)
         if (newId === null) throw new AssertionError({ message: "the updating ID must exists on all leaderboards!" })
-        let oldId = await this.client.getset(pathedId, newId)
+        let oldId = await this.client.get(pathedId)
 
         if (oldId === null) {
             await super.add(newId, 0)
         }
-        else {
+        else if (newId < oldId) {
             let pipeline = this.client.multi()
+            pipeline.set(pathedId, newId)
             pipeline = super.removeMulti(oldId, pipeline)
             pipeline = super.addMulti(newId, 0, pipeline)
             await pipeline.exec()

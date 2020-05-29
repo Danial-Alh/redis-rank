@@ -1,26 +1,84 @@
 import { Redis, Pipeline } from 'ioredis';
-import { Leaderboard, LeaderboardOptions, ID } from './Leaderboard';
-import { TimeFrame, PeriodicLeaderboard } from './PeriodicLeaderboard';
+import { Leaderboard, ID } from './Leaderboard';
+import { TimeFrame, PeriodicLeaderboard, PeriodicLeaderboardOptions } from './PeriodicLeaderboard';
 import { buildScript } from './Common';
-import { TimestampedLeaderboardOptions } from './TimestampedLeaderboard';
-import { LeaderboardMatrix, LeaderboardMatrixOptions } from './LeaderboardMatrix';
+import { TimestampedLeaderboardOptions, TimestampedLeaderboard } from './TimestampedLeaderboard';
+import { LeaderboardMatrix } from './LeaderboardMatrix';
 import { AssertionError } from 'assert';
+import { MultimetricLeaderboard } from './MultiMetricLeaderboard';
+import { MultiMetricPeriodicLeaderboard } from './MultiMetricPeriodicLeaderboard';
 
+
+export type DimensionDefinition = {
+    /** dimension name */
+    name: string;
+    /** dimension Time Frame */
+    timeFrame?: TimeFrame
+}
+
+export type FeatureDefinition = {
+    /** feature name */
+    name: string;
+    /** underlying leaderboard options. path is ignored */
+    options?: Partial<TimestampedLeaderboardOptions>;
+}
+
+export type MultiMetricLeaderboardMatrixOptions = {
+    /**
+     * base path to store all the leaderboards
+     * 
+     * <path>:<dimension>:<feature>:<time key>
+     */
+    path: string,
+    /** leaderboard dimensions. Provide at least one */
+    dimensions: DimensionDefinition[],
+    /** leaderboard features. Provide at least one */
+    features: FeatureDefinition[],
+    /** custom function to evaluate the current time */
+    now(): Date,
+    maxUsers: number,
+}
+
+export type MatrixEntry = {
+    /** identifier */
+    id: ID,
+    /** ranking */
+    rank: number,
+    /** feature scores */
+    [feature: string]: ID | number
+}
 
 export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
+    protected maxUsers: number;
+    protected ALL_METRIC: string
 
-    constructor(client: Redis, options: Partial<LeaderboardMatrixOptions> = {}) {
-        if (!options.features?.every(f => f.useTimestampedLeaderboard === true)){
-            throw new AssertionError({message: "all leaderboards must be timestamped ones!"})
-        }
-        options.features.push({name: 'allMetrics', useTimestampedLeaderboard:false})
+    constructor(client: Redis, options: Partial<MultiMetricLeaderboardMatrixOptions> = {}) {
+        options = Object.assign({
+            path: 'multimetriclbmatrix',
+            dimensions: [{
+                name: 'global',
+                timeFrame: 'all-time'
+            }],
+            features: [{
+                name: 'default',
+                options: {
+                    lowToHigh: false,
+                    earlierToLater: true,
+                }
+            }],
+            now: () => new Date()
+        }, options);
+        if (options.features === undefined || options.maxUsers === undefined) throw new AssertionError({ message: 'Invalid option. featrues is undefined! maxUsers not set!' })
+        options.features.push({ name: 'allMetrics' })
         super(client, options)
+        this.maxUsers = options.maxUsers
+        this.ALL_METRIC = 'allMetrics'
     }
 
     /**
      * Get the corresponding leaderboard in the matrix
      */
-    get(dimension: string, feature: string, time?: Date): (Leaderboard | null) {
+    get(dimension: string, feature: string, time?: Date): (TimestampedLeaderboard | MultimetricLeaderboard | null) {
         // check dimension & feature
         let dim_index = this.options.dimensions.findIndex((dim) => dim.name === dimension);
         let feat_index = this.options.features.findIndex((feat) => feat.name === feature);
@@ -29,20 +87,28 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
             return null;
         }
 
-        if (this.matrix[dim_index][feat_index] === null) {
-            let dim = this.options.dimensions[dim_index];
-            let feat = this.options.features[feat_index];
+        let dim = this.options.dimensions[dim_index];
+        let feat = this.options.features[feat_index];
 
-            this.matrix[dim_index][feat_index] = new PeriodicLeaderboard(this.client, {
-                path: `${this.options.path}:${dim.name}:${feat.name}`,
-                timeFrame: dim.timeFrame || 'all-time',
-                now: this.options.now,
-                useTimstampedLeaderboard: feat.useTimestampedLeaderboard,
-                leaderboardOptions: feat.options
-            });
+        if (feat.name === 'allMetric') {
+            if (this.matrix[dim_index][feat_index] === null) {
+                this.options.features.forEach((fd, i) => fd.name !== this.ALL_METRIC ? this.get(dimension, fd.name, time) : null)
+                let allOtherLeaderboards = Array.from(
+                    this.options.features.splice(feat_index),
+                    (_, i) => this.matrix[dim_index][i] as PeriodicLeaderboard)
+
+                this.matrix[dim_index][feat_index] = new MultiMetricPeriodicLeaderboard(this.client, {
+                    path: `${this.options.path}:${dim.name}:${feat.name}`,
+                    timeFrame: dim.timeFrame,
+                    now: this.options.now,
+                    leaderboards: allOtherLeaderboards,
+                    maxUsers: this.maxUsers
+                });
+            }
+            return (this.matrix[dim_index][feat_index] as MultiMetricPeriodicLeaderboard).get(time ? time : this.options.now()) as MultimetricLeaderboard;
+
         }
-
-        return (this.matrix[dim_index][feat_index] as PeriodicLeaderboard).get(time ? time : this.options.now());
+        return super.get(dimension, feature, time) as TimestampedLeaderboard
     }
 
     /**
@@ -65,22 +131,14 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
      *                   if not provided, all dimensions are used
      */
     async add(id: ID, features: { [key: string]: number }, dimensions: string[] = []): Promise<void> {
+        await super.add(id, features, dimensions)
         if (dimensions.length == 0) { // use all dimensions
             dimensions = this.options.dimensions.map((dim) => dim.name);
         }
-
-        let pipeline: Pipeline = this.client.multi();
-
         for (let dimension of dimensions) {
-            for (let feature in features) {
-                let lb = this.get(dimension, feature);
-                if (lb) {
-                    pipeline = lb.addMulti(id, features[feature], pipeline);
-                }
-            }
+            let mmlb = this.get(dimension, this.ALL_METRIC) as MultimetricLeaderboard;
+            await mmlb.update(id);
         }
-
-        await pipeline.exec();
     }
 
     /**
@@ -103,22 +161,14 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
      *                   if not provided, all dimensions are used
      */
     async incr(id: ID, features: { [key: string]: number }, dimensions: string[] = []): Promise<void> {
+        await super.incr(id, features, dimensions)
         if (dimensions.length == 0) { // use all dimensions
             dimensions = this.options.dimensions.map((dim) => dim.name);
         }
-
-        let pipeline: Pipeline = this.client.multi();
-
         for (let dimension of dimensions) {
-            for (let feature in features) {
-                let lb = this.get(dimension, feature);
-                if (lb) {
-                    pipeline = lb.incrMulti(id, features[feature], pipeline);
-                }
-            }
+            let mmlb = this.get(dimension, this.ALL_METRIC) as MultimetricLeaderboard;
+            await mmlb.update(id);
         }
-
-        await pipeline.exec();
     }
 
     /**
@@ -141,22 +191,14 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
      *                   if not provided, all dimensions are used
      */
     async improve(id: ID, features: { [key: string]: number }, dimensions: string[] = []): Promise<void> {
+        await super.improve(id, features, dimensions)
         if (dimensions.length == 0) { // use all dimensions
             dimensions = this.options.dimensions.map((dim) => dim.name);
         }
-
-        let pipeline: Pipeline = this.client.multi();
-
         for (let dimension of dimensions) {
-            for (let feature in features) {
-                let lb = this.get(dimension, feature);
-                if (lb) {
-                    pipeline = lb.improveMulti(id, features[feature], pipeline);
-                }
-            }
+            let mmlb = this.get(dimension, this.ALL_METRIC) as MultimetricLeaderboard;
+            await mmlb.update(id);
         }
-
-        await pipeline.exec();
     }
 
     /**
@@ -189,7 +231,7 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
 
         let entry: MatrixEntry = { id, rank: 0 };
         this.options.features.map((f, f_i) => {
-            entry[f.name] = parseInt(result[f_i], 10)
+            entry[f.name] = parseFloat(result[f_i])
         });
         return entry;
     }
@@ -244,6 +286,11 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
         if (distance < 0)
             return [];
 
+        let newId = feature !== this.ALL_METRIC ? await (lb as TimestampedLeaderboard).getLastTimestampedId(id, false) :
+            await (lb as MultimetricLeaderboard).getLastNewId(id)
+        if (newId === null) {
+            return []
+        }
         let result = await this.client.eval(buildScript(`
             local range = aroundRange(KEYS[1], ARGV[1], ARGV[2], ARGV[3], ARGV[4]);
             if range[1] == -1 then return { {}, { {},{} } } end
@@ -257,13 +304,13 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
             this.options.features.map(f => this.get(dimension, f.name)!.getPath()),
 
             lb.isLowToHigh().toString(),
-            id,
+            newId,
             distance,
             fillBorders.toString(),
             this.options.features.length
         );
 
-        return this.parseEntries(result[1], parseInt(result[0], 10) + 1);
+        return this.parseEntries(result[1], parseFloat(result[0]) + 1);
     }
 
     /**
@@ -276,7 +323,15 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
         return result[0].map((id: ID, index: number) => {
             let entry: MatrixEntry = { id, rank: low + index };
             this.options.features.map((f, f_i) => {
-                entry[f.name] = parseInt(result[1][f_i][index], 10)
+                entry[f.name] = parseFloat(result[1][f_i][index])
+                if (f.name !== this.ALL_METRIC) {
+                    let llb = this.get(this.options.dimensions[0].name, f.name) as TimestampedLeaderboard
+                    entry.id = llb.timestampedId2Id(entry.id)
+                }
+                else {
+                    let llb = this.get(this.options.dimensions[0].name, f.name) as MultimetricLeaderboard
+                    entry.id = llb.newId2Id(entry.id)
+                }
             });
             return entry;
         });

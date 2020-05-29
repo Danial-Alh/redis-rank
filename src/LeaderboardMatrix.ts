@@ -1,8 +1,8 @@
 import { Redis, Pipeline } from 'ioredis';
 import { Leaderboard, LeaderboardOptions, ID } from './Leaderboard';
-import { TimeFrame, PeriodicLeaderboard } from './PeriodicLeaderboard';
+import { TimeFrame, PeriodicLeaderboard, BasePeriodicLeaderboard } from './PeriodicLeaderboard';
 import { buildScript } from './Common';
-import { TimestampedLeaderboardOptions } from './TimestampedLeaderboard';
+import { TimestampedLeaderboardOptions, TimestampedLeaderboard } from './TimestampedLeaderboard';
 
 export type DimensionDefinition = {
     /** dimension name */
@@ -14,7 +14,6 @@ export type DimensionDefinition = {
 export type FeatureDefinition = {
     /** feature name */
     name: string;
-    useTimestampedLeaderboard: Boolean,
     /** underlying leaderboard options. path is ignored */
     options?: Partial<LeaderboardOptions | TimestampedLeaderboardOptions>;
 }
@@ -50,7 +49,7 @@ export class LeaderboardMatrix {
     /** options */
     protected options: LeaderboardMatrixOptions;
     /** matrix with the leaderboards */
-    protected matrix: (PeriodicLeaderboard | null)[][];
+    protected matrix: (BasePeriodicLeaderboard | null)[][];
 
     constructor(client: Redis, options: Partial<LeaderboardMatrixOptions> = {}) {
         this.client = client;
@@ -93,7 +92,7 @@ export class LeaderboardMatrix {
                 path: `${this.options.path}:${dim.name}:${feat.name}`,
                 timeFrame: dim.timeFrame || 'all-time',
                 now: this.options.now,
-                useTimstampedLeaderboard: feat.useTimestampedLeaderboard,
+                leaderboardClass: TimestampedLeaderboard,
                 leaderboardOptions: feat.options
             });
         }
