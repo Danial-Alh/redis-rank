@@ -233,7 +233,11 @@ local function retrieveMultimetricEntry(id, feature_keys)
 end
 
 local function retrieveMultimetricEntries(path, is_low_to_high, feature_keys, low, high)
-    local ids = redis.pcall((is_low_to_high == "true") and "zrange" or "zrevrange", path, low, high)
+    local timestampedIds = redis.pcall((is_low_to_high == "true") and "zrange" or "zrevrange", path, low, high)
+    local ids = {}
+    for timestampedId in timestampedIds do
+        table.insert(ids, timestampedId2Id(timestampedId))
+    end
     local features = {}
 
     while #feature_keys > 0 do
@@ -241,7 +245,6 @@ local function retrieveMultimetricEntries(path, is_low_to_high, feature_keys, lo
 
         local scores = {}
         for n = 1, #ids, 1 do
-            local id = timestampedId2Id(ids[n])
             local timestampedId = getLastTimestampedId(key, nil, id, "false")
             table.insert(scores, redis.pcall("ZSCORE", key, timestampedId))
         end
@@ -253,4 +256,25 @@ local function retrieveMultimetricEntries(path, is_low_to_high, feature_keys, lo
     --   [ [1, 2, 3], [4, 5, 6] ]
     -- ]
     return {ids, features}
+end
+
+local function multimetricAroundRange(path, is_low_to_high, id, distance, fill_borders)
+    local timestampedId = getLastTimestampedId(path, nil, id, "false")
+    local r = redis.pcall((is_low_to_high == "true") and "zrank" or "zrevrank", path, timestampedId)
+    if r == false or r == nil then
+        return {-1, -1}
+    end
+    local c = redis.pcall("zcard", path)
+    local l = math.max(0, r - distance)
+    local h = 0
+    if fill_borders == "true" then
+        h = l + 2 * distance
+        if h >= c then
+            h = math.min(c, r + distance)
+            l = math.max(0, h - 2 * distance - 1)
+        end
+    else
+        h = math.min(c, r + distance)
+    end
+    return {l, h, c, r}
 end

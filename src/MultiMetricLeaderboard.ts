@@ -3,6 +3,7 @@ import IORedis, { Pipeline } from "ioredis";
 import { Leaderboard, LeaderboardOptions, ID, Entry } from "./Leaderboard";
 import { AssertionError } from "assert";
 import { TimestampedLeaderboard } from "./TimestampedLeaderboard";
+import { buildScript } from "./Common";
 
 type PATH_ID = string;
 type NEW_ID = string;
@@ -43,9 +44,8 @@ export class MultimetricLeaderboard extends Leaderboard {
         let timestamp = (new Date()).getTime()
         timestamp = 10 ** 13 - timestamp
         idCompnents.push(timestamp.toString())
-        idCompnents.push(id)
 
-        let newId = idCompnents.join("-")
+        let newId = idCompnents.join("-") + ":" + id
         return newId
     }
 
@@ -54,8 +54,8 @@ export class MultimetricLeaderboard extends Leaderboard {
     }
 
     public newId2Id(newId: NEW_ID): string {
-        let ranking_meta_info_length = (13 + 1) + this.leaderboards.length * (this.requiredDigitsForMaxUsers + 1)
-        return newId.slice(ranking_meta_info_length)
+        let newId_meta_info_length = (13 + 1) + this.leaderboards.length * (this.requiredDigitsForMaxUsers + 1)
+        return newId.slice(newId_meta_info_length)
     }
 
     protected normalizeEntry(entry: Entry): Entry {
@@ -63,7 +63,7 @@ export class MultimetricLeaderboard extends Leaderboard {
         return entry
     }
 
-    public async update(id: ID): Promise<void> {
+    public async updateRank(id: ID): Promise<void> {
         let pathedId = this.id2PathedId(id)
         let newId = await this.id2NewId(id)
         if (newId === null) throw new AssertionError({ message: "the updating ID must exists on all leaderboards!" })
@@ -118,6 +118,11 @@ export class MultimetricLeaderboard extends Leaderboard {
         return entries
     }
 
+    async clear(): Promise<void> {
+        await this.client.eval(
+            buildScript(`return timestampedClear(ARGV[1])`),
+            0, this.getPath())
+    }
 
     // ***************************** *********************** ***************************
     // ***************************** NOT IMPLEMENTED YET !!! ***************************
@@ -137,10 +142,6 @@ export class MultimetricLeaderboard extends Leaderboard {
     }
 
     public async remove(id: string): Promise<void> {
-        throw new AssertionError({ message: "not implemented yet!" })
-    }
-
-    async clear(): Promise<void> {
         throw new AssertionError({ message: "not implemented yet!" })
     }
 

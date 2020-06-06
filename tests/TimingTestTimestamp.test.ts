@@ -1,6 +1,6 @@
 import Redis from 'ioredis';
 
-import { TimestampedLeaderboardV2 } from '../src/TimestampedLeaderboardV2'
+import { TimestampedLeaderboard } from '../src/TimestampedLeaderboard'
 
 
 (async () => {
@@ -11,7 +11,7 @@ import { TimestampedLeaderboardV2 } from '../src/TimestampedLeaderboardV2'
         lowToHigh: false,
         earlierToLater: true
     }
-    const lb = new TimestampedLeaderboardV2(rc, lbOptions)
+    const lb = new TimestampedLeaderboard(rc, lbOptions)
 
     let cond = 2
     console.log('cond value: ', cond);

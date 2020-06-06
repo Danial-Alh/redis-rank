@@ -1,6 +1,6 @@
 import { Redis, Pipeline } from 'ioredis';
 import { Leaderboard, ID } from './Leaderboard';
-import { TimeFrame, PeriodicLeaderboard, PeriodicLeaderboardOptions } from './PeriodicLeaderboard';
+import { TimeFrame, PeriodicLeaderboard } from './PeriodicLeaderboard';
 import { buildScript } from './Common';
 import { TimestampedLeaderboardOptions, TimestampedLeaderboard } from './TimestampedLeaderboard';
 import { LeaderboardMatrix } from './LeaderboardMatrix';
@@ -90,7 +90,7 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
         let dim = this.options.dimensions[dim_index];
         let feat = this.options.features[feat_index];
 
-        if (feat.name === 'allMetric') {
+        if (feat.name === this.ALL_METRIC) {
             if (this.matrix[dim_index][feat_index] === null) {
                 this.options.features.forEach((fd, i) => fd.name !== this.ALL_METRIC ? this.get(dimension, fd.name, time) : null)
                 let allOtherLeaderboards = Array.from(
@@ -137,7 +137,7 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
         }
         for (let dimension of dimensions) {
             let mmlb = this.get(dimension, this.ALL_METRIC) as MultimetricLeaderboard;
-            await mmlb.update(id);
+            await mmlb.updateRank(id);
         }
     }
 
@@ -167,7 +167,7 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
         }
         for (let dimension of dimensions) {
             let mmlb = this.get(dimension, this.ALL_METRIC) as MultimetricLeaderboard;
-            await mmlb.update(id);
+            await mmlb.updateRank(id);
         }
     }
 
@@ -197,7 +197,13 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
         }
         for (let dimension of dimensions) {
             let mmlb = this.get(dimension, this.ALL_METRIC) as MultimetricLeaderboard;
-            await mmlb.update(id);
+            console.log(mmlb);
+            console.log("****************************");
+            console.log(dimension);
+            console.log("****************************");
+            
+
+            await mmlb.updateRank(id);
         }
     }
 
@@ -218,7 +224,7 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
             return null;
 
         let result = await this.client.eval(buildScript(`
-            return retrieveEntry(ARGV[1], KEYS)
+            return retrieveMultimetricEntry(ARGV[1], KEYS)
             `),
             this.options.features.length,
             this.options.features.map(f => this.get(dimension, f.name)!.getPath()),
@@ -247,7 +253,7 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
         if (!lb) return [];
 
         let result = await this.client.eval(buildScript(`
-            return retrieveEntries(KEYS[1], ARGV[1], slice(KEYS, 2, ARGV[2]+1), ARGV[3], ARGV[4])
+            return retrieveMultimetricEntries(KEYS[1], ARGV[1], slice(KEYS, 2, ARGV[2]+1), ARGV[3], ARGV[4])
             `),
             this.options.features.length + 1,
             lb.getPath(),
@@ -286,17 +292,12 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
         if (distance < 0)
             return [];
 
-        let newId = feature !== this.ALL_METRIC ? await (lb as TimestampedLeaderboard).getLastTimestampedId(id, false) :
-            await (lb as MultimetricLeaderboard).getLastNewId(id)
-        if (newId === null) {
-            return []
-        }
         let result = await this.client.eval(buildScript(`
-            local range = aroundRange(KEYS[1], ARGV[1], ARGV[2], ARGV[3], ARGV[4]);
+            local range = multimetricAroundRange(KEYS[1], ARGV[1], ARGV[2], ARGV[3], ARGV[4]);
             if range[1] == -1 then return { {}, { {},{} } } end
             return {
                 range[1],
-                retrieveEntries(KEYS[1], ARGV[1], slice(KEYS, 2, ARGV[5]+1), range[1], range[2])
+                retrieveMultimetricEntries(KEYS[1], ARGV[1], slice(KEYS, 2, ARGV[5]+1), range[1], range[2])
             }
             `),
             this.options.features.length + 1,
@@ -304,7 +305,7 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
             this.options.features.map(f => this.get(dimension, f.name)!.getPath()),
 
             lb.isLowToHigh().toString(),
-            newId,
+            id,
             distance,
             fillBorders.toString(),
             this.options.features.length
@@ -324,16 +325,20 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
             let entry: MatrixEntry = { id, rank: low + index };
             this.options.features.map((f, f_i) => {
                 entry[f.name] = parseFloat(result[1][f_i][index])
-                if (f.name !== this.ALL_METRIC) {
-                    let llb = this.get(this.options.dimensions[0].name, f.name) as TimestampedLeaderboard
-                    entry.id = llb.timestampedId2Id(entry.id)
-                }
-                else {
-                    let llb = this.get(this.options.dimensions[0].name, f.name) as MultimetricLeaderboard
-                    entry.id = llb.newId2Id(entry.id)
-                }
             });
             return entry;
         });
+    }
+
+    public async clear(time?: Date): Promise<void> {
+        for (let i_dim = 0; i_dim < this.options.dimensions.length; i_dim++) {
+            const dim = this.options.dimensions[i_dim];
+            for (let i_feat = 0; i_feat < this.options.features.length; i_feat++) {
+                const feat = this.options.features[i_feat];
+                await this.get(dim.name, feat.name, time)!.clear()
+                this.matrix[i_dim][i_feat] = null
+            }
+
+        }
     }
 }

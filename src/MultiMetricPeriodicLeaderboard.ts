@@ -41,7 +41,7 @@ export class MultiMetricPeriodicLeaderboard extends PL.BasePeriodicLeaderboard {
     /**
      * Get a the leaderboard in a specific date
      */
-    get(date: Date): Leaderboard {
+    public get(date: Date): Leaderboard {
         const subLeaderboards = Array.from(this.options.leaderboards,
             (pl: PL.PeriodicLeaderboard, i) => (pl.get(date) as TimestampedLeaderboard))
         return new MultimetricLeaderboard(this.client,
@@ -55,7 +55,7 @@ export class MultiMetricPeriodicLeaderboard extends PL.BasePeriodicLeaderboard {
     /**
      * Get the leaderboard based on the current time
      */
-    getCurrent(): Leaderboard {
+    public getCurrent(): Leaderboard {
         let path = `${this.options.path}:${this.getCurrentKey()}`;
 
         if (this.leaderboard === null || this.leaderboard.getPath() !== path) {
@@ -71,5 +71,13 @@ export class MultiMetricPeriodicLeaderboard extends PL.BasePeriodicLeaderboard {
         }
 
         return this.leaderboard;
+    }
+
+    public async clear(date: Date): Promise<void> {
+        await this.get(date).clear()
+    }
+
+    public async clearCurrent(): Promise<void> {
+        await this.getCurrent().clear()
     }
 }
