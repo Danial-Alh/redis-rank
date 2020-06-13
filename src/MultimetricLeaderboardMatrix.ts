@@ -53,6 +53,7 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
     protected ALL_METRIC: string
 
     constructor(client: Redis, options: Partial<MultiMetricLeaderboardMatrixOptions> = {}) {
+        const ALL_METRIC = "allMetrics"
         options = Object.assign({
             path: 'multimetriclbmatrix',
             dimensions: [{
@@ -69,32 +70,32 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
             now: () => new Date()
         }, options);
         if (options.features === undefined || options.maxUsers === undefined) throw new AssertionError({ message: 'Invalid option. featrues is undefined! maxUsers not set!' })
-        options.features.push({ name: 'allMetrics' })
+        if (options.features.findIndex((feat) => feat.name === ALL_METRIC) !== -1) throw new AssertionError({ message: '"' + ALL_METRIC + '" must not be used as a feature name!' })
+        options.features.push({ name: ALL_METRIC })
         super(client, options)
+        this.ALL_METRIC = ALL_METRIC
         this.maxUsers = options.maxUsers
-        this.ALL_METRIC = 'allMetrics'
     }
 
     /**
      * Get the corresponding leaderboard in the matrix
      */
     get(dimension: string, feature: string, time?: Date): (TimestampedLeaderboard | MultimetricLeaderboard | null) {
-        // check dimension & feature
-        let dim_index = this.options.dimensions.findIndex((dim) => dim.name === dimension);
-        let feat_index = this.options.features.findIndex((feat) => feat.name === feature);
+        if (feature === this.ALL_METRIC) {
+            // check dimension & feature
+            let dim_index = this.options.dimensions.findIndex((dim) => dim.name === dimension);
+            let feat_index = this.options.features.findIndex((feat) => feat.name === feature);
 
-        if (dim_index === -1 || feat_index === -1) {
-            return null;
-        }
+            if (dim_index === -1 || feat_index === -1) {
+                return null;
+            }
 
-        let dim = this.options.dimensions[dim_index];
-        let feat = this.options.features[feat_index];
-
-        if (feat.name === this.ALL_METRIC) {
+            let dim = this.options.dimensions[dim_index];
+            let feat = this.options.features[feat_index];
             if (this.matrix[dim_index][feat_index] === null) {
                 this.options.features.forEach((fd, i) => fd.name !== this.ALL_METRIC ? this.get(dimension, fd.name, time) : null)
                 let allOtherLeaderboards = Array.from(
-                    this.options.features.splice(feat_index),
+                    this.options.features.slice(0, feat_index).concat(this.options.features.slice(feat_index + 1)),
                     (_, i) => this.matrix[dim_index][i] as PeriodicLeaderboard)
 
                 this.matrix[dim_index][feat_index] = new MultiMetricPeriodicLeaderboard(this.client, {
@@ -197,12 +198,6 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
         }
         for (let dimension of dimensions) {
             let mmlb = this.get(dimension, this.ALL_METRIC) as MultimetricLeaderboard;
-            console.log(mmlb);
-            console.log("****************************");
-            console.log(dimension);
-            console.log("****************************");
-            
-
             await mmlb.updateRank(id);
         }
     }
@@ -324,6 +319,7 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
         return result[0].map((id: ID, index: number) => {
             let entry: MatrixEntry = { id, rank: low + index };
             this.options.features.map((f, f_i) => {
+                if (f.name === this.ALL_METRIC) return
                 entry[f.name] = parseFloat(result[1][f_i][index])
             });
             return entry;
@@ -333,7 +329,7 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
     public async clear(time?: Date): Promise<void> {
         for (let i_dim = 0; i_dim < this.options.dimensions.length; i_dim++) {
             const dim = this.options.dimensions[i_dim];
-            for (let i_feat = 0; i_feat < this.options.features.length; i_feat++) {
+            for (let i_feat = this.options.features.length - 1; i_feat >= 0; i_feat--) {
                 const feat = this.options.features[i_feat];
                 await this.get(dim.name, feat.name, time)!.clear()
                 this.matrix[i_dim][i_feat] = null

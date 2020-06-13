@@ -46,11 +46,11 @@ import { TimeFrame } from '../src/PeriodicLeaderboard';
     if (cond == 1) {
         console.log('testing');
 
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 1; i++) {
             const id = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
             const score = Math.random() * 100
             await lb.improve(id, { feat1: score, feat2: score / 6 })
-            if (i % 100000 == 0) console.log(i);
+            if (i % 10000 == 0) console.log(i);
 
         }
     }
@@ -60,7 +60,9 @@ import { TimeFrame } from '../src/PeriodicLeaderboard';
     }
 
     else if (cond == 3) {
-        await lb.top('dim1', 'feat1', 5)
+        const result = await lb.top('dim1', 'feat1', 5)
+        console.log(result);
+
     }
 
     var end = (new Date()).getTime() - start

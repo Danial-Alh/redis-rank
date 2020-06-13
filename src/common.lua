@@ -235,7 +235,8 @@ end
 local function retrieveMultimetricEntries(path, is_low_to_high, feature_keys, low, high)
     local timestampedIds = redis.pcall((is_low_to_high == "true") and "zrange" or "zrevrange", path, low, high)
     local ids = {}
-    for timestampedId in timestampedIds do
+    for n = 1, #timestampedIds do
+        local timestampedId = timestampedIds[n]
         table.insert(ids, timestampedId2Id(timestampedId))
     end
     local features = {}
@@ -244,8 +245,8 @@ local function retrieveMultimetricEntries(path, is_low_to_high, feature_keys, lo
         local key = table.remove(feature_keys, 1)
 
         local scores = {}
-        for n = 1, #ids, 1 do
-            local timestampedId = getLastTimestampedId(key, nil, id, "false")
+        for n = 1, #ids do
+            local timestampedId = getLastTimestampedId(key, nil, ids[n], "false")
             table.insert(scores, redis.pcall("ZSCORE", key, timestampedId))
         end
         features[#features + 1] = scores

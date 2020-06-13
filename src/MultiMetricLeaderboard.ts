@@ -60,6 +60,7 @@ export class MultimetricLeaderboard extends Leaderboard {
 
     protected normalizeEntry(entry: Entry): Entry {
         entry.id = this.newId2Id(entry.id)
+        
         return entry
     }
 
@@ -69,20 +70,22 @@ export class MultimetricLeaderboard extends Leaderboard {
         if (newId === null) throw new AssertionError({ message: "the updating ID must exists on all leaderboards!" })
         let oldId = await this.client.get(pathedId)
 
-        if (oldId === null) {
-            await super.add(newId, 0)
-        }
-        else if (newId < oldId) {
+
+        if (oldId === null || newId < oldId) {
             let pipeline = this.client.multi()
-            pipeline.set(pathedId, newId)
-            pipeline = super.removeMulti(oldId, pipeline)
+
+            if (oldId !== null) {
+                pipeline = super.removeMulti(oldId, pipeline)
+            }
+
             pipeline = super.addMulti(newId, 0, pipeline)
+            pipeline = pipeline.set(pathedId, newId)
             await pipeline.exec()
         }
     }
 
     async peek(id: ID): Promise<Entry | null> {
-        const newId = await this.id2NewId(id)
+        const newId = await this.getLastNewId(id)
         if (newId === null) return null
 
         const entry = await super.peek(newId)
@@ -91,14 +94,14 @@ export class MultimetricLeaderboard extends Leaderboard {
     }
 
     async score(id: ID): Promise<number | null> {
-        const newId = await this.id2NewId(id)
+        const newId = await this.getLastNewId(id)
         if (newId === null) return null
 
         return await super.score(newId)
     }
 
     async rank(id: ID): Promise<number | null> {
-        const newId = await this.id2NewId(id)
+        const newId = await this.getLastNewId(id)
         if (newId === null) return null
 
         return await super.rank(newId)
@@ -111,7 +114,7 @@ export class MultimetricLeaderboard extends Leaderboard {
     }
 
     async around(id: ID, distance: number, fillBorders: boolean = false): Promise<Entry[]> {
-        const newId = await this.id2NewId(id)
+        const newId = await this.getLastNewId(id)
         if (newId === null) return []
         const entries = await super.around(newId, distance, fillBorders)
         entries.forEach((entry, index, _) => { this.normalizeEntry(entry) })

@@ -22,12 +22,14 @@ export type PeriodicLeaderboardOptions = {
 }
 
 export class BasePeriodicLeaderboard {
-    protected client: Redis;
+    protected client: Redis
+    protected format: string
     protected options: any
 
     constructor(client: Redis, options: Partial<PeriodicLeaderboardOptions>) {
         this.client = client
         this.options = options
+        this.format = BasePeriodicLeaderboard.momentFormat(this.options.timeFrame);
     }
 
     /**
@@ -40,23 +42,24 @@ export class BasePeriodicLeaderboard {
             return '[all]';
 
         const frames = ['yearly', 'monthly', 'weekly', 'daily', 'hourly', 'minute'];
-        const format = ['[y]YYYY', '[m]MM', '[w]ww', '[d]DD', '[h]HH', '[m]mm'];
+        const format = ['YYYY', 'MM', 'ww', 'DD', 'HH', 'mm'];
 
-        return format.slice(0, frames.indexOf(timeFrame) + 1).join('-');
+        const formatForTimeframe = format.slice(0, frames.indexOf(timeFrame) + 1).join('-')
+        return formatForTimeframe;
     }
 
     /**
      * Return the format used for the current Time Frame
      */
     getKeyFormat() {
-        return this.options.format;
+        return this.format;
     }
 
     /**
      * Get a the key of the leaderboard in a specific date
      */
     getKey(date: Date): string {
-        return moment(date).format(this.options.format);
+        return moment(date).format(this.format);
     }
 
     /**
