@@ -25,6 +25,7 @@
     "/dist"
   ],
   "scripts": {
+    "prepublish": "npm run build",
     "build": "tsc && cpx src/common.lua dist",
     "publish": "npm run test && npm run build && npm publish",
     "test": "jest --coverage --verbose --runInBand",

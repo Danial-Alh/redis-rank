@@ -18,7 +18,7 @@ export type PeriodicLeaderboardOptions = {
     // leaderboardClass: (typeof Leaderboard) | (typeof TimestampedLeaderboard) | (typeof MultimetricLeaderboard),
     leaderboardClass: typeof Leaderboard,
     /** underlying leaderboard options */
-    leaderboardOptions?: Partial<LeaderboardOptions | TimestampedLeaderboardOptions>
+    leaderboardOptions?: Partial<LeaderboardOptions | TimestampedLeaderboardOptions | null>
 }
 
 export class BasePeriodicLeaderboard {
