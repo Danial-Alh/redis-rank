@@ -236,24 +236,20 @@ export class LeaderboardMatrix {
             return null;
 
         let result = await this.client.eval(buildScript(`
-            return retrieveEntry(ARGV[1], KEYS, slice(ARGV, 2, #ARGV))
+            return retrieveMultimetricEntry(ARGV[1], KEYS)
             `),
             this.options.features.length,
             this.options.features.map(f => this.get(dimension, f.name)!.getPath()),
 
-            id,
-            this.options.features.map(f => this.get(dimension, f.name)!.isLowToHigh()),
+            id
         );
 
-        if (result[0].every((e: any) => e === null))
+        if (result.every((e: any) => e === null))
             return null;
 
         let entry: MatrixEntry = { id, rank: 0 };
         this.options.features.map((f, f_i) => {
-            entry[f.name] = {
-                score: parseFloat(result[0][f_i]),
-                rank: parseInt(result[1][f_i])
-            } as ScoreRank
+            entry[f.name] = parseFloat(result[f_i])
         });
         return entry;
     }

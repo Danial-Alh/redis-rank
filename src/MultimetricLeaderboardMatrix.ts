@@ -1,5 +1,5 @@
-import { Redis, Pipeline } from 'ioredis';
-import { Leaderboard, ID } from './Leaderboard';
+import { Redis } from 'ioredis';
+import { ID } from './Leaderboard';
 import { TimeFrame, PeriodicLeaderboard } from './PeriodicLeaderboard';
 import { buildScript } from './Common';
 import { TimestampedLeaderboardOptions, TimestampedLeaderboard } from './TimestampedLeaderboard';
@@ -39,13 +39,18 @@ export type MultiMetricLeaderboardMatrixOptions = {
     maxUsers: number,
 }
 
+export type ScoreRank = {
+    score: number,
+    rank: number
+}
+
 export type MatrixEntry = {
     /** identifier */
     id: ID,
     /** ranking */
     rank: number,
     /** feature scores */
-    [feature: string]: ID | number
+    [feature: string]: ID | number | ScoreRank
 }
 
 export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
@@ -219,20 +224,24 @@ export class MultiMetricLeaderboardMatrix extends LeaderboardMatrix {
             return null;
 
         let result = await this.client.eval(buildScript(`
-            return retrieveMultimetricEntry(ARGV[1], KEYS)
+            return retrieveEntry(ARGV[1], KEYS, slice(ARGV, 2, #ARGV))
             `),
             this.options.features.length,
             this.options.features.map(f => this.get(dimension, f.name)!.getPath()),
 
-            id
+            id,
+            this.options.features.map(f => this.get(dimension, f.name)!.isLowToHigh()),
         );
 
-        if (result.every((e: any) => e === null))
+        if (result[0].every((e: any) => e === null))
             return null;
 
         let entry: MatrixEntry = { id, rank: 0 };
         this.options.features.map((f, f_i) => {
-            entry[f.name] = parseFloat(result[f_i])
+            entry[f.name] = {
+                score: parseFloat(result[0][f_i]),
+                rank: parseInt(result[1][f_i])
+            } as ScoreRank
         });
         return entry;
     }
