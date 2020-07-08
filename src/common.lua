@@ -220,16 +220,19 @@ local function timestampedClear(path)
     redis.pcall("del", path)
 end
 
-local function retrieveMultimetricEntry(id, feature_keys)
+local function retrieveMultimetricEntry(id, feature_keys, is_low_to_highs)
     local features = {}
+    local ranks = {}
 
     while #feature_keys > 0 do
         local key = table.remove(feature_keys, 1)
+        local is_low_to_high = table.remove(is_low_to_highs, 1)
         local timestampedId = getLastTimestampedId(key, nil, id, "false")
         features[#features + 1] = redis.pcall("ZSCORE", key, timestampedId)
+        ranks[#ranks + 1] = redis.pcall((is_low_to_high == "true") and "zrank" or "zrevrank", key, timestampedId)
     end
 
-    return features
+    return {features, ranks}
 end
 
 local function retrieveMultimetricEntries(path, is_low_to_high, feature_keys, low, high)

@@ -33,13 +33,18 @@ export type LeaderboardMatrixOptions = {
     now(): Date
 }
 
+export type ScoreRank = {
+    score: number,
+    rank: number
+}
+
 export type MatrixEntry = {
     /** identifier */
     id: ID,
     /** ranking */
     rank: number,
     /** feature scores */
-    [feature: string]: ID | number
+    [feature: string]: ID | number | ScoreRank
 }
 
 
@@ -231,19 +236,24 @@ export class LeaderboardMatrix {
             return null;
 
         let result = await this.client.eval(buildScript(`
-            return retrieveEntry(ARGV[1], KEYS)
+            return retrieveEntry(ARGV[1], KEYS, slice(ARGV, 2, #ARGV))
             `),
             this.options.features.length,
             this.options.features.map(f => this.get(dimension, f.name)!.getPath()),
-            id
+
+            id,
+            this.options.features.map(f => this.get(dimension, f.name)!.isLowToHigh()),
         );
 
-        if (result.every((e: any) => e === null))
+        if (result[0].every((e: any) => e === null))
             return null;
 
         let entry: MatrixEntry = { id, rank: 0 };
         this.options.features.map((f, f_i) => {
-            entry[f.name] = parseFloat(result[f_i])
+            entry[f.name] = {
+                score: parseFloat(result[0][f_i]),
+                rank: parseInt(result[1][f_i])
+            } as ScoreRank
         });
         return entry;
     }
@@ -317,7 +327,7 @@ export class LeaderboardMatrix {
             this.options.features.length
         );
 
-        return this.parseEntries(result[1], parseFloat(result[0]) + 1);
+        return this.parseEntries(result[1], parseInt(result[0]) + 1);
     }
 
     /**

@@ -1,4 +1,4 @@
-export * from './Leaderboard';
+export * from './MultimetricLeaderboardMatrix';
+export * from './MultiMetricPeriodicLeaderboard';
+export * from './MultiMetricLeaderboard';
 export * from './TimestampedLeaderboard';
-export * from './PeriodicLeaderboard';
-export * from './LeaderboardMatrix';
