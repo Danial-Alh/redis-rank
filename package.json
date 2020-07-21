@@ -25,6 +25,7 @@
     "/dist"
   ],
   "scripts": {
+    "prepare": "npm run build",
     "prepublish": "npm run build",
     "build": "tsc && cpx src/common.lua dist",
     "publish": "npm run test && npm run build && npm publish",
